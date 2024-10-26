@@ -16,7 +16,8 @@ two packages:
 
 ```
 boost
-openssl```
+openssl
+```
 
 They can be installed via homebrew like so:
 
