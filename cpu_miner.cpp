@@ -109,35 +109,69 @@ private:
         return receive_response();
     }
 
+    // Authenticate with the Stratum server
     void authenticate() {
+        // Send subscription request
         json::object subscribe_request = {
             {"id", 1},
             {"method", "mining.subscribe"},
             {"params", json::array{}}
         };
         auto subscribe_response = send_and_receive(subscribe_request);
+
         print_json(subscribe_response);
 
-        const auto& result = subscribe_response.at("result").as_array();
-        if (result.size() < 3) throw std::runtime_error("Invalid subscription response");
+        // Safely extract subscription data with error handling
+        try {
+            const auto& result = subscribe_response.at("result").as_array();
+            if (result.size() < 3)
+                throw std::runtime_error("Invalid subscription response format");
 
-        subscription_id = result[0].as_array()[1].as_string().c_str();
-        extranonce1 = result[1].as_string().c_str();
-        extranonce2_size = result[2].as_int64();
+            // Handle nested array structure properly
+            const auto& notify_array = result[0].as_array();
+            if (notify_array.empty() || !notify_array[0].is_array())
+                throw std::runtime_error("Invalid notify array structure");
 
+            const auto& inner_array = notify_array[0].as_array();
+            if (inner_array.size() < 2)
+                throw std::runtime_error("Notify array missing expected elements");
+
+            subscription_id = std::string(inner_array[1].as_string());
+            extranonce1 = std::string(result[1].as_string());
+            extranonce2_size = static_cast<uint32_t>(result[2].as_int64());
+
+            std::cout << "Subscription ID: " << subscription_id << std::endl;
+            std::cout << "Extranonce1: " << extranonce1
+            << ", Extranonce2 size: " << extranonce2_size << std::endl;
+        } catch (const std::exception& e) {
+            throw std::runtime_error("Failed to parse subscription response: " + std::string(e.what()));
+        }
+
+        // Send authorization request
         json::object auth_request = {
             {"id", 2},
             {"method", "mining.authorize"},
             {"params", json::array{user, password}}
         };
         auto auth_response = send_and_receive(auth_request);
+
         print_json(auth_response);
 
+        // Check if authorization succeeded
         if (!auth_response.at("result").as_bool()) {
             throw std::runtime_error("Authentication failed");
         }
 
         std::cout << "Successfully authenticated with the pool." << std::endl;
+    }
+
+    void set_difficulty(const json::array &params) {
+        if (params.empty() || !params[0].is_number()) {
+            throw std::runtime_error("Invalid or missing difficulty parameter.");
+        }
+
+        difficulty = params[0].as_double();
+        std::cout << "Difficulty set to: " << difficulty << std::endl;
     }
 
     void process_job(const json::array &params) {
@@ -164,21 +198,58 @@ private:
 
     void listen_for_jobs() {
         try {
-            while (true) {
-                auto job = receive_response().as_object();
-                print_json(job);
+            for (;;) {
+                asio::streambuf response;
+                asio::read_until(socket, response, "\n");
 
-                if (job.contains("method") && job["method"] == "mining.notify") {
-                    process_job(job["params"].as_array());
-                } else {
-                    std::cout << "Waiting for jobs..." << std::endl;
+                std::istream is(&response);
+                std::string line;
+                std::getline(is, line);
+
+                if (line.empty()) {
+                    std::cout << "Empty message received. Waiting..." << std::endl;
                     std::this_thread::sleep_for(std::chrono::seconds(1));
+                    continue;
+                }
+
+                // Parse the JSON response
+                auto message = json::parse(line).as_object();
+                print_json(message);  // For debugging
+
+                // Check for the "method" key
+                if (!message.contains("method")) {
+                    std::cerr << "Invalid message: Missing 'method' field." << std::endl;
+                    continue;
+                }
+
+                std::string method = message.at("method").as_string().c_str();
+
+                if (method == "mining.notify") {
+                    if (message.contains("params")) {
+                        process_job(message.at("params").as_array());
+                    } else {
+                        std::cerr << "Missing 'params' in mining.notify." << std::endl;
+                    }
+                }
+                else if (method == "mining.set_difficulty") {
+                    try {
+                        if (message.contains("params")) {
+                            set_difficulty(message.at("params").as_array());
+                        } else {
+                            std::cerr << "Missing 'params' in mining.set_difficulty." << std::endl;
+                        }
+                    } catch (const std::exception &e) {
+                        std::cerr << "Error setting difficulty: " << e.what() << std::endl;
+                    }
+                } else {
+                    std::cout << "Unknown method: " << method << std::endl;
                 }
             }
         } catch (const std::exception &e) {
-            std::cerr << "Error: " << e.what() << std::endl;
+            std::cerr << "Error while listening for jobs: " << e.what() << std::endl;
         }
     }
+
 };
 
 int main() {
