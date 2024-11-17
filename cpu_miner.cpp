@@ -8,59 +8,10 @@
 #include <mutex>
 #include <boost/asio.hpp>
 #include <boost/json.hpp>
-#include <openssl/sha.h>
-#include <openssl/evp.h>
 
 namespace asio = boost::asio;
 namespace json = boost::json;
 using tcp = asio::ip::tcp;
-
-// SHA-256 hashing using OpenSSL EVP API
-std::string double_sha256(const std::string &input) {
-    // Temporary buffer for intermediate and final hash
-    unsigned char hash[EVP_MAX_MD_SIZE];
-    unsigned int length = 0;
-
-    // First SHA-256 hash
-    EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
-    if (!mdctx) throw std::runtime_error("Failed to create EVP_MD_CTX");
-
-    if (EVP_DigestInit_ex(mdctx, EVP_sha256(), nullptr) != 1) {
-        EVP_MD_CTX_free(mdctx);
-        throw std::runtime_error("Failed to initialize first SHA-256 context");
-    }
-    if (EVP_DigestUpdate(mdctx, input.data(), input.size()) != 1) {
-        EVP_MD_CTX_free(mdctx);
-        throw std::runtime_error("Failed to update first SHA-256 hash");
-    }
-    if (EVP_DigestFinal_ex(mdctx, hash, &length) != 1) {
-        EVP_MD_CTX_free(mdctx);
-        throw std::runtime_error("Failed to finalize first SHA-256 hash");
-    }
-
-    // Reinitialize the context for the second SHA-256 hash
-    if (EVP_DigestInit_ex(mdctx, EVP_sha256(), nullptr) != 1) {
-        EVP_MD_CTX_free(mdctx);
-        throw std::runtime_error("Failed to initialize second SHA-256 context");
-    }
-    if (EVP_DigestUpdate(mdctx, hash, length) != 1) {
-        EVP_MD_CTX_free(mdctx);
-        throw std::runtime_error("Failed to update second SHA-256 hash");
-    }
-    if (EVP_DigestFinal_ex(mdctx, hash, &length) != 1) {
-        EVP_MD_CTX_free(mdctx);
-        throw std::runtime_error("Failed to finalize second SHA-256 hash");
-    }
-
-    EVP_MD_CTX_free(mdctx);
-
-    // Convert the final hash to a hexadecimal string
-    std::ostringstream ss;
-    for (unsigned int i = 0; i < length; ++i) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
-    }
-    return ss.str();
-}
 
 // Helper to print JSON responses (for debugging)
 void print_json(const json::value &jv) {
@@ -143,8 +94,14 @@ private:
 };
 
 int main() {
+    std::string host = "10.0.1.210";                                            // CKPool IP
+    std::string port = "3333";                                                  // Standard stratum port
+    std::string user = "bc1q7shp5h6pcgey0hsqy2k2rvrfegly8c9uaxrtfx.cpu_miner";  // Bitcoin wallet address for payout
+    std::string password = "x";                                                 // Usually 'x' is used as a placeholder for Stratum
     EventLoop eventLoop;
+
     eventLoop.run();
+
     return 0;
 }
 
