@@ -101,19 +101,30 @@ public:
       }
 
     void connect(const std::string& host, const std::string& port) {
+        std::cout << "Connecting to Stratum server at " << host << ":" << port << "..." << std::endl;
         auto endpoints = resolver.resolve(host, port);
-        std::cout << "Resolving endpoints..." << std::endl;
+        for (const auto& endpoint : endpoints) {
+            std::cout << "Resolved endpoint: "
+                      << endpoint.endpoint().address().to_string()
+                      << ":"
+                      << endpoint.endpoint().port()
+                      << "\n";
+        }
         asio::async_connect(socket, endpoints,
             [this](boost::system::error_code ec, tcp::endpoint endpoint) {
                 if (!ec) {
-                    std::cout << "Connected to " << endpoint << "." << std::endl;
+                    std::cout << "Connected to: "
+                              << endpoint.address().to_string() 
+                              << ":" 
+                              << endpoint.port() 
+                              << "\n";
                     sendSubscribe();
                     startRead();
                 } else {
                     std::cerr << "Connect failed: " << ec.message() << "\n";
-                    io_context.stop(); // Ensures the program exits cleanly
+                    io_context.stop();
                 }
-            });
+        });
     }
 
     void sendMessage(const json::value& message) {
@@ -129,6 +140,7 @@ public:
     }
 
     void run() {
+        std::cout << "EventLoop running..." << std::endl;
         std::cout << "EventLoop: Starting io_context.run()..." << std::endl;
         io_thread = std::thread([this]() {
             try {
@@ -237,13 +249,8 @@ int main() {
         std::string host = "10.0.1.210";
         std::string port = "3333";
 
-        std::cout << "Connecting to Stratum server at " << host << ":" << port << "..." << std::endl;
-
         eventLoop.connect(host, port);
         eventLoop.run();
-
-        std::cout << "EventLoop running..." << std::endl;
-
     } catch (const std::exception& ex) {
         std::cerr << "Error: " << ex.what() << std::endl;
     }
