@@ -11,20 +11,9 @@ a BitAxe Supra miner connected to the Pi5 via the LAN to do lottery mining.
 Think of the Pi5 as running a small, private bitcoin mining pool.
 
 Everything is hard coded in my C++ code as I type this. It is being
-developed on an M2 Mac mini with Homebrew installed. It uses the following
-two packages:
+developed on an M2 Mac mini with Homebrew installed. I'm using the
+Boost package for asio and JSON.
 
-```
-boost
-openssl
-```
+```brew install boost cmake```
 
-They can be installed via homebrew like so:
-
-
-```brew install boost openssl```
-
-The build.sh script is for compiling on the M2 Mac mini. A linux machine would
-likely require a slightly different build command. An Intel Mac probably will also
-as brew's package management varies between ARM64 and Intel architectures.
-
+I'm using CMake for the build process.
