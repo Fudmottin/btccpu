@@ -6,42 +6,44 @@
 
 int main(int argc, char* argv[]) {
     if (argc != 3) {
-        std::cerr << "Usage: " << argv[0] << " <host> <port>\n";
+        std::cerr << "Usage: " << argv[0] << " <host> <port>" << std::endl;
         return 1;
     }
 
     std::string host = argv[1];
     std::string port = argv[2];
 
-    try {
-        EventLoop event_loop(host, port);
+    EventLoop event_loop(host, port);
 
-        // Set handlers
-        event_loop.set_on_message([](const std::string& message) {
-            std::cout << "Received: " << message << std::endl;
-        });
+    // Set up the message callback
+    event_loop.set_on_message([](const std::string& message) {
+        std::cout << "Received: " << message << std::endl;
+    });
 
-        event_loop.set_on_error([](const std::string& error) {
-            std::cerr << "Error: " << error << std::endl;
-        });
+    // Set up the error callback
+    event_loop.set_on_error([](const std::string& error) {
+        std::cerr << "Error: " << error << std::endl;
+    });
 
-        std::thread event_thread([&event_loop]() {
-            event_loop.start();
-        });
+    // Try to connect synchronously
+    if (event_loop.connect()) {
+        std::cout << "Successfully connected!" << std::endl;
+    } else {
+        std::cerr << "Connection failed!" << std::endl;
+        return 1;
+    }
 
-        std::cout << "Press Enter to send a test message...\n";
-        std::cin.get();
-
-        event_loop.async_send("Hello, server!");
-
-        std::cout << "Press Enter to stop...\n";
-        std::cin.get();
-
-        event_loop.stop();
-        event_thread.join();
-    } catch (const std::exception& ex) {
-        std::cerr << "Exception: " << ex.what() << "\n";
+    // Wait until the user decides to stop
+    std::string message;
+    while (event_loop.is_connected()) {
+        std::cout << "Enter message to send (or 'exit' to quit): ";
+        std::getline(std::cin, message);
+        if (message == "exit") {
+            break;
+        }
+        event_loop.send(message);
     }
 
     return 0;
 }
+

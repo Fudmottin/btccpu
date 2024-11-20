@@ -3,8 +3,11 @@
 
 #include <boost/asio.hpp>
 #include <functional>
+#include <iostream>
 #include <string>
+#include <memory>
 #include <mutex>
+#include <queue>
 
 class EventLoop {
 public:
@@ -12,17 +15,23 @@ public:
     using error_callback_t = std::function<void(const std::string&)>;
 
     EventLoop(const std::string& host, const std::string& port);
+    ~EventLoop();
 
     void start();
     void stop();
+
+    bool connect();  // Synchronous connection method
+    bool is_connected() const;  // Check connection status
+
+    bool send(const std::string& message);
 
     void async_send(const std::string& message);
     void set_on_message(message_callback_t callback);
     void set_on_error(error_callback_t callback);
 
 private:
-    void do_connect();
-    void do_receive();
+    void start_receive();
+    void handle_message(const std::string& message);
 
     boost::asio::io_context io_context_;
     boost::asio::ip::tcp::resolver resolver_;
