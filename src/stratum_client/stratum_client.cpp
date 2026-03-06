@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "stratum_client/messages.hpp"
 #include "stratum_client/stratum_client.hpp"
 
 namespace cpu_miner {
@@ -98,14 +99,26 @@ void StratumClient::handle_message(std::string_view line) {
          std::string(method_it->value().as_string().c_str());
 
       if (method == "mining.set_difficulty") {
-         std::cout << "Received mining.set_difficulty\n";
-         print_json_pretty(value);
+         const auto msg = parse_set_difficulty(obj);
+         if (!msg) {
+            std::cerr << "Failed to parse mining.set_difficulty\n";
+            print_json_pretty(value);
+            return;
+         }
+
+         print_set_difficulty(*msg);
          return;
       }
 
       if (method == "mining.notify") {
-         std::cout << "Received mining.notify\n";
-         print_json_pretty(value);
+         const auto msg = parse_notify(obj);
+         if (!msg) {
+            std::cerr << "Failed to parse mining.notify\n";
+            print_json_pretty(value);
+            return;
+         }
+
+         print_notify_summary(*msg);
          saw_notify_ = true;
          return;
       }
