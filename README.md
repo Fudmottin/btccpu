@@ -10,10 +10,15 @@ I have Bitcoin Core and CKPool running on a Raspbery Pi 5. In turn, there is
 a BitAxe Supra miner connected to the Pi5 via the LAN to do lottery mining.
 Think of the Pi5 as running a small, private bitcoin mining pool.
 
-Everything is hard coded in my C++ code as I type this. It is being
-developed on an M2 Mac mini with Homebrew installed. I'm using the
-Boost package for asio and JSON.
+I'm using CMake for project management. Hopefully this code will work on
+both Linux (Debian, Raspberry Pi), MacOS, and other POSIX systems. For
+MacOS, I'm using Homebrew.
 
 ```brew install boost cmake```
 
-I'm using CMake for the build process.
+For Debian,
+
+```sudo apt install boost cmake```
+
+Enjoy.
+
