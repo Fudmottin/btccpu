@@ -6,8 +6,11 @@
 #include <boost/asio.hpp>
 #include <boost/json.hpp>
 
+#include <optional>
 #include <string>
 #include <string_view>
+
+#include "mining_job/job.hpp"
 
 namespace cpu_miner {
 
@@ -36,6 +39,9 @@ class StratumClient {
 
    int next_id_{1};
    bool saw_notify_{false};
+
+   std::optional<SubscriptionContext> subscription_;
+   std::optional<MiningJob> current_job_;
 };
 
 } // namespace cpu_miner

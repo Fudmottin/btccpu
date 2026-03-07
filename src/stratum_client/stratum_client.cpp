@@ -118,6 +118,26 @@ void StratumClient::handle_message(std::string_view line) {
             return;
          }
 
+         current_job_ = MiningJob{
+            .job_id = msg->job_id,
+            .prevhash = msg->prevhash,
+            .coinb1 = msg->coinb1,
+            .coinb2 = msg->coinb2,
+            .merkle_branch = msg->merkle_branch,
+            .version = msg->version,
+            .nbits = msg->nbits,
+            .ntime = msg->ntime,
+            .clean_jobs = msg->clean_jobs
+         };
+
+         if (subscription_) {
+            std::cout << "subscription cached: extranonce1="
+            << subscription_->extranonce1 << '\n';
+         }
+         if (current_job_) {
+            std::cout << "job cached: " << current_job_->job_id << '\n';
+         }
+
          print_notify_summary(*msg);
          saw_notify_ = true;
          return;
@@ -132,6 +152,11 @@ void StratumClient::handle_message(std::string_view line) {
    if (id_it != obj.end()) {
       const auto subscribe = parse_subscribe_response(obj);
       if (subscribe) {
+         subscription_ =
+            SubscriptionContext{.extranonce1 = subscribe->extranonce1,
+                                .extranonce2_size =
+                                   subscribe->extranonce2_size};
+
          print_subscribe_response(*subscribe);
          return;
       }
