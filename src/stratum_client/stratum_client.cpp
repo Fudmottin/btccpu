@@ -130,6 +130,12 @@ void StratumClient::handle_message(std::string_view line) {
 
    const auto id_it = obj.find("id");
    if (id_it != obj.end()) {
+      const auto subscribe = parse_subscribe_response(obj);
+      if (subscribe) {
+         print_subscribe_response(*subscribe);
+         return;
+      }
+
       std::cout << "Received response message\n";
       print_json_pretty(value);
       return;

@@ -91,6 +91,37 @@ std::optional<NotifyMessage> parse_notify(const boost::json::object& obj) {
    return msg;
 }
 
+std::optional<SubscribeResponse>
+parse_subscribe_response(const boost::json::object& obj) {
+   const auto result_it = obj.find("result");
+   if (result_it == obj.end() || !result_it->value().is_array()) {
+      return std::nullopt;
+   }
+
+   const auto& result = result_it->value().as_array();
+   if (result.size() < 3) return std::nullopt;
+   if (!result[1].is_string()) return std::nullopt;
+
+   const boost::json::value& extranonce2_size_value = result[2];
+
+   std::size_t extranonce2_size{};
+   if (extranonce2_size_value.is_uint64()) {
+      extranonce2_size =
+         static_cast<std::size_t>(extranonce2_size_value.as_uint64());
+   } else if (extranonce2_size_value.is_int64()) {
+      const auto n = extranonce2_size_value.as_int64();
+      if (n < 0) return std::nullopt;
+      extranonce2_size = static_cast<std::size_t>(n);
+   } else {
+      return std::nullopt;
+   }
+
+   SubscribeResponse msg{};
+   msg.extranonce1 = std::string(result[1].as_string().c_str());
+   msg.extranonce2_size = extranonce2_size;
+   return msg;
+}
+
 void print_set_difficulty(const SetDifficultyMessage& msg) {
    std::cout << "set_difficulty:\n";
    std::cout << "  difficulty: " << msg.difficulty << '\n';
@@ -112,6 +143,12 @@ void print_notify_summary(const NotifyMessage& msg) {
    if (!msg.merkle_branch.empty()) {
       std::cout << "  first branch:  " << msg.merkle_branch.front() << '\n';
    }
+}
+
+void print_subscribe_response(const SubscribeResponse& msg) {
+   std::cout << "subscribe:\n";
+   std::cout << "  extranonce1:      " << msg.extranonce1 << '\n';
+   std::cout << "  extranonce2_size: " << msg.extranonce2_size << " bytes\n";
 }
 } // namespace cpu_miner
 
