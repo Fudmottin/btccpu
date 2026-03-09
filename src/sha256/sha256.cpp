@@ -1,334 +1,205 @@
-/*******************************************************************************
- *                                  sha256.cpp                                 *
- *                              Author: Fudmottin                              *
- *                                                                             *
- * This software is provided 'as-is', without any express or implied warranty. *
- * In no event will the authors be held liable for any damages arising from    *
- * the use of this software.                                                   *
- *                                                                             *
- * Permission is hereby granted, free of charge, to any person obtaining a     *
- * copy of this software and associated documentation files (the "Software"),  *
- * to deal in the Software without restriction, including without limitation   *
- * the rights to use, copy, modify, merge, publish, distribute, sublicense and *
- * or sell copies of the Software.                                             *
- *                                                                             *
- *                   SHA-256 As defined by NIST.FIPS.180-4                     *
- *                     A great visualizer can be found at                      *
- *                                                                             *
- *                        https://sha256algorithm.com                          *
- *                                                                             *
- *              This file has been placed into The Public Domain               *
- *                                                                             *
- ******************************************************************************/
+// src/sha256/sha256.cpp
 
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cstddef>
 #include <cstdint>
-#include <fstream>
-#include <iomanip>
-#include <iostream>
-#include <iterator>
-#include <string>
+#include <span>
 #include <vector>
 
-// Type aliases to match the wording in the NIST.FIPS.180-4 SHA-256
-// specification.
-using Word = uint32_t;
-using SHA256_Constants = const std::array<Word, 64>;
-using Digest = std::array<Word, 8>;
-using Message = std::vector<unsigned char>;
-using Block = std::array<Word, 16>;
-using Schedule = std::array<Word, 64>;
+#include "sha256/sha256.hpp"
 
-// Section 4.4.2 SHA-256 Constants
-//
-// These words represent the first thirty-two bits of the fractional parts of
-// the cube roots of the first sixty-four prime numbers. In hex, these constant
-// words are (from left to right)
+namespace cpu_miner::sha256 {
+namespace {
 
-static const SHA256_Constants K = {
-   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
-   0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
-   0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
-   0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-   0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
-   0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
-   0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
-   0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-   0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
-   0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
-   0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
+using Message = std::vector<std::uint8_t>;
 
-// Section 5.3.3 SHA-256
-//
-// For SHA-256, the initial hash value, H(0), shall consist of the following
-// eight 32-bit words, in hex. These words were obtained by taking the first
-// thirty-two bits of the fractional parts of the square roots of the first
-// eight prime numbers.
+// Section 4.4.2 SHA-256 constants.
+constexpr std::array<Word, 64> K = {
+   0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U, 0x3956c25bU, 0x59f111f1U,
+   0x923f82a4U, 0xab1c5ed5U, 0xd807aa98U, 0x12835b01U, 0x243185beU, 0x550c7dc3U,
+   0x72be5d74U, 0x80deb1feU, 0x9bdc06a7U, 0xc19bf174U, 0xe49b69c1U, 0xefbe4786U,
+   0x0fc19dc6U, 0x240ca1ccU, 0x2de92c6fU, 0x4a7484aaU, 0x5cb0a9dcU, 0x76f988daU,
+   0x983e5152U, 0xa831c66dU, 0xb00327c8U, 0xbf597fc7U, 0xc6e00bf3U, 0xd5a79147U,
+   0x06ca6351U, 0x14292967U, 0x27b70a85U, 0x2e1b2138U, 0x4d2c6dfcU, 0x53380d13U,
+   0x650a7354U, 0x766a0abbU, 0x81c2c92eU, 0x92722c85U, 0xa2bfe8a1U, 0xa81a664bU,
+   0xc24b8b70U, 0xc76c51a3U, 0xd192e819U, 0xd6990624U, 0xf40e3585U, 0x106aa070U,
+   0x19a4c116U, 0x1e376c08U, 0x2748774cU, 0x34b0bcb5U, 0x391c0cb3U, 0x4ed8aa4aU,
+   0x5b9cca4fU, 0x682e6ff3U, 0x748f82eeU, 0x78a5636fU, 0x84c87814U, 0x8cc70208U,
+   0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U};
 
-static const Digest H0 = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-                          0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+// Section 5.3.3 SHA-256 initial hash value.
+constexpr DigestWords H0 = {0x6a09e667U, 0xbb67ae85U, 0x3c6ef372U, 0xa54ff53aU,
+                            0x510e527fU, 0x9b05688cU, 0x1f83d9abU, 0x5be0cd19U};
 
-// Section 4.1.2 SHA-256 Functions
-//
-// SHA-256 uses six logical functions, where each function operates on 32-bit
-// words which are represented as x, y, and z, The result of each function is
-// a new 32 bit word.
-
-// The 'Ch' function: This is short for "choose" and given three inputs x, y, z
-// returns bits from y where the corresponding bit in x is 1 and bits from z
-// where the corresponding bit in x is 0.
-constexpr Word Ch(Word x, Word y, Word z) {
+constexpr Word ch(Word x, Word y, Word z) noexcept {
    return (x & y) ^ ((~x) & z);
-} // 4.2
+}
 
-// The 'Maj' function: Short for "majority", this function takes three inputs
-// x, y, z and for each bit index i if at least two of the bits xi, yi or zi
-// are set to 1 then so is the result mi.
-constexpr Word Maj(Word x, Word y, Word z) {
+constexpr Word maj(Word x, Word y, Word z) noexcept {
    return (x & y) ^ (x & z) ^ (y & z);
-} // 4.3
+}
 
-// The sigma functions: These are defined as bitwise operations on their input
-// word according to specific rules outlined in section 4 of NIST.FIPS.180-4.
-// They are used as part of generating a message schedule from a block of input
-// data when calculating a SHA-256 hash. The suffixes are the part of the
-// specification that defines each sigma function.
-constexpr Word sigma_4_4(Word x) {
+constexpr Word big_sigma0(Word x) noexcept {
    return std::rotr(x, 2) ^ std::rotr(x, 13) ^ std::rotr(x, 22);
-} // 4.4
-constexpr Word sigma_4_5(Word x) {
-   return std::rotr(x, 6) ^ std::rotr(x, 11) ^ std::rotr(x, 25);
-} // 4.5
-constexpr Word sigma_4_6(Word x) {
-   return std::rotr(x, 7) ^ std::rotr(x, 18) ^ (x >> 3);
-} // 4.6
-constexpr Word sigma_4_7(Word x) {
-   return std::rotr(x, 17) ^ std::rotr(x, 19) ^ (x >> 10);
-} // 4.7
+}
 
-// 5.1 Padding The Message: The purpose of this padding is to ensure that the
-// padded message is a multiple of 512 bits. Padding can be inserted before hash
-// computation begins on a message, or at any other time during the hash
-// computation prior to processing the block(s) that will contain the padding.
-// l is message length in bits
-Message pad(uint64_t l) {
-   const size_t mbytes = static_cast<size_t>(l / 8); // message length in bytes
-   // number of zero bytes to append after the initial 0x80 so that
-   // (mbytes + 1 + pad_zero_bytes) % 64 == 56
-   const size_t pad_zero_bytes = (56 + 64 - ((mbytes + 1) % 64)) % 64;
+constexpr Word big_sigma1(Word x) noexcept {
+   return std::rotr(x, 6) ^ std::rotr(x, 11) ^ std::rotr(x, 25);
+}
+
+constexpr Word small_sigma0(Word x) noexcept {
+   return std::rotr(x, 7) ^ std::rotr(x, 18) ^ (x >> 3);
+}
+
+constexpr Word small_sigma1(Word x) noexcept {
+   return std::rotr(x, 17) ^ std::rotr(x, 19) ^ (x >> 10);
+}
+
+Message padding_for_bit_length(std::uint64_t bit_length) {
+   const std::size_t message_bytes = static_cast<std::size_t>(bit_length / 8U);
+   const std::size_t zero_pad_bytes =
+      (56U + 64U - ((message_bytes + 1U) % 64U)) % 64U;
 
    Message padding;
-   padding.reserve(1 + pad_zero_bytes + 8);
+   padding.reserve(1U + zero_pad_bytes + 8U);
 
-   // 1) append single 1 bit as 0x80
-   padding.push_back(0x80);
+   padding.push_back(0x80U);
+   padding.insert(padding.end(), zero_pad_bytes, 0x00U);
 
-   // 2) append pad_zero_bytes of 0x00
-   padding.insert(padding.end(), pad_zero_bytes, 0x00);
-
-   // 3) append 64-bit big-endian length (l is already in bits)
    for (int i = 7; i >= 0; --i) {
-      padding.push_back(static_cast<unsigned char>((l >> (8 * i)) & 0xFF));
+      const auto shift = static_cast<unsigned>(i * 8);
+      padding.push_back(
+         static_cast<std::uint8_t>((bit_length >> shift) & 0xffU));
    }
 
    return padding;
 }
 
-// 6.2.2 SHA-256 Hash Computation:
-// The message is read into 512 bit (16 word) blocks which are in turn used
-// to create a 64 word schedule. Each word in the schedule is referred to
-// as Wt where t is from 0 to 63 inclusive. The schedule is the heart of
-// the algorithm as it is used to modify the initial hash value (H0) and
-// then each of the intermediate digests produced when processing each
-// block.
-Schedule schedule(const Block& M) {
-   Schedule W = {};
-
-   // Copy the first 16 elements from M to W
-   std::ranges::copy(M, W.begin());
-   // Complete the schedule
-   for (int t = 16; t < 64; ++t) {
-      W[t] = sigma_4_7(W[t - 2]) + W[t - 7] + sigma_4_6(W[t - 15]) + W[t - 16];
-   }
-
-   return W;
+constexpr Word read_be32(const std::uint8_t* p) noexcept {
+   return (static_cast<Word>(p[0]) << 24U) | (static_cast<Word>(p[1]) << 16U) |
+          (static_cast<Word>(p[2]) << 8U) | (static_cast<Word>(p[3]) << 0U);
 }
 
-// 6.2.2 SHA-256 Hash Computation:
-// Run the message schedule. This does the work of producing the next
-// digest value from the current digest.
-Digest runschedule(const Schedule& W, Digest& H) {
-   Word a(H[0]), b(H[1]), c(H[2]), d(H[3]), e(H[4]), f(H[5]), g(H[6]), h(H[7]);
+constexpr void write_be32(Word value, std::uint8_t* out) noexcept {
+   out[0] = static_cast<std::uint8_t>((value >> 24U) & 0xffU);
+   out[1] = static_cast<std::uint8_t>((value >> 16U) & 0xffU);
+   out[2] = static_cast<std::uint8_t>((value >> 8U) & 0xffU);
+   out[3] = static_cast<std::uint8_t>((value >> 0U) & 0xffU);
+}
 
-   for (int t = 0; t < 64; t++) {
-      Word T1(h + sigma_4_5(e) + Ch(e, f, g) + K[t] + W[t]);
-      Word T2(sigma_4_4(a) + Maj(a, b, c));
+constexpr void write_le32(Word value, std::uint8_t* out) noexcept {
+   out[0] = static_cast<std::uint8_t>((value >> 0U) & 0xffU);
+   out[1] = static_cast<std::uint8_t>((value >> 8U) & 0xffU);
+   out[2] = static_cast<std::uint8_t>((value >> 16U) & 0xffU);
+   out[3] = static_cast<std::uint8_t>((value >> 24U) & 0xffU);
+}
+
+Schedule make_schedule(const BlockWords& block) {
+   Schedule schedule{};
+
+   std::ranges::copy(block, schedule.begin());
+
+   for (std::size_t t = 16; t < schedule.size(); ++t) {
+      schedule[t] = small_sigma1(schedule[t - 2U]) + schedule[t - 7U] +
+                    small_sigma0(schedule[t - 15U]) + schedule[t - 16U];
+   }
+
+   return schedule;
+}
+
+DigestWords run_schedule(const Schedule& schedule, DigestWords digest) {
+   Word a = digest[0];
+   Word b = digest[1];
+   Word c = digest[2];
+   Word d = digest[3];
+   Word e = digest[4];
+   Word f = digest[5];
+   Word g = digest[6];
+   Word h = digest[7];
+
+   for (std::size_t t = 0; t < schedule.size(); ++t) {
+      const Word t1 = h + big_sigma1(e) + ch(e, f, g) + K[t] + schedule[t];
+      const Word t2 = big_sigma0(a) + maj(a, b, c);
+
       h = g;
       g = f;
       f = e;
-      e = d + T1;
+      e = d + t1;
       d = c;
       c = b;
       b = a;
-      a = T1 + T2;
+      a = t1 + t2;
    }
 
-   H[0] += a;
-   H[1] += b;
-   H[2] += c;
-   H[3] += d;
-   H[4] += e;
-   H[5] += f;
-   H[6] += g;
-   H[7] += h;
+   digest[0] += a;
+   digest[1] += b;
+   digest[2] += c;
+   digest[3] += d;
+   digest[4] += e;
+   digest[5] += f;
+   digest[6] += g;
+   digest[7] += h;
 
-   return H;
+   return digest;
 }
 
-// This implementation processes the message in memory. For small
-// messages, that's fine. For larger messages, you would want to
-// use a slightly more complex method that keeps track of the
-// message size in bits as the blocks are read in. That would
-// also affect how the padding is done as it has to tack data
-// onto the end of the message so that it is an integer multiple
-// of 512 bits (16 words).
+DigestWords sha256_impl(std::span<const std::uint8_t> data) {
+   Message message(data.begin(), data.end());
 
-// Helper to read bytes in big-endian order and properly place them
-// in little-endian Words
-static inline constexpr Word read_be32(const unsigned char* p) noexcept {
-   return (Word(p[0]) << 24) | (Word(p[1]) << 16) | (Word(p[2]) << 8) |
-          (Word(p[3]));
-}
+   const std::uint64_t bit_length =
+      static_cast<std::uint64_t>(message.size()) * 8U;
+   const Message padding = padding_for_bit_length(bit_length);
+   message.insert(message.end(), padding.begin(), padding.end());
 
-Digest message(Message& msg) {
-   uint64_t messagelength = msg.size() * 8;
-   Digest digest = H0; // The initial digest value is set.
+   DigestWords digest = H0;
 
-   // The message padding is calculated and stored.
-   const Message padding = pad(messagelength);
+   for (std::size_t offset = 0; offset < message.size(); offset += 64U) {
+      BlockWords block{};
 
-   // The padding is added on to the end of the message.
-   std::ranges::copy(padding, std::back_inserter(msg));
-
-   // Parse the message 64 bytes at a time and process each block.
-   for (size_t b = 0; b < msg.size(); b += 64) {
-      Block B{};
-
-      for (size_t j = 0; j < 16; ++j) {
-         B[j] = read_be32(&msg[b + j * 4]);
+      for (std::size_t i = 0; i < block.size(); ++i) {
+         block[i] = read_be32(&message[offset + (i * 4U)]);
       }
 
-      const Schedule s = schedule(B);
-      digest = runschedule(s, digest);
+      const Schedule schedule = make_schedule(block);
+      digest = run_schedule(schedule, digest);
    }
 
    return digest;
 }
 
-// This is a convenience function. Bitcoin uses sha256(sha256(data)).
-// Since digests are a fixed 256 bit length, we already know the padding.
-Digest hashDigest(const Digest& d) {
-   Digest digest = H0;
-   const Digest startPad = {0x80000000, 0x00000000, 0x00000000, 0x00000000,
-                            0x00000000, 0x00000000, 0x00000000, 0x00000100};
-   Block B = {};
+} // namespace
 
-   int i = 0;
-   for (const auto w : d) B[i++] = w;
-   for (const auto w : startPad) B[i++] = w;
-
-   const Schedule s = schedule(B);
-   return runschedule(s, digest);
+DigestWords sha256_words(std::span<const std::uint8_t> data) {
+   return sha256_impl(data);
 }
 
-// This is just a simple utility function to parse the command line
-// arguments into a vector<string> type.
-std::vector<std::string> arguments(const int argc, char* argv[]) {
-   std::vector<std::string> res;
-
-   for (int i = 1; i < argc; i++) res.emplace_back(argv[i]);
-
-   return res;
+DigestWords dbl_sha256_words(std::span<const std::uint8_t> data) {
+   const DigestWords first = sha256_impl(data);
+   const DigestBytes first_bytes = digest_words_to_bytes_be(first);
+   return sha256_impl(first_bytes);
 }
 
-// This implementation reads each file to be hashed into memory. This
-// works just fine for small files. Large files should be processed
-// by streaming the data which would change all the code above. In
-// practice, one would use a library function or utility like sha2
-// to calculate the hash/digest of a file. This is just an educational
-// example for acedemic purposes only.
-int main(const int argc, char* argv[]) {
-   try {
-      const std::vector<std::string> args = arguments(argc, argv);
+DigestBytes digest_words_to_bytes_be(const DigestWords& digest) noexcept {
+   DigestBytes out{};
 
-      if (argc == 1) {
-         std::cout
-            << "SHA-256 algorithm for educational purposes only!\n"
-            << "$ sha256 [-] file1 [file2 ...]\n\n"
-            << "Reads each file and provides a SHA-256 digest.\n"
-            << "The - argument can appear anywhere in the argument\n"
-            << "list. Files appearing after the - will be double hashed.\n"
-            << "Bitcoin does this sha256(sha256(data)).\n"
-            << "The output is a text hex representation of the "
-            << "SHA-256 message digest.\n";
-         return 0;
-      }
-
-      Message msg{};
-
-      bool doublehash = false;
-      for (const auto& file : args) {
-         if (file == std::string("-")) {
-            doublehash = true;
-            continue;
-         }
-
-         std::ifstream infile(file, std::ios::binary);
-
-         if (!infile) {
-            std::cerr << "Failed to open file: " << file << "\n";
-            continue;
-         }
-
-         infile.seekg(0, std::ios::end);
-         size_t fileSize = infile.tellg();
-
-         msg.resize(fileSize);
-
-         // Seek back to the beginning of the file
-         infile.seekg(0, std::ios::beg);
-
-         // Read the entire file into the vector
-         infile.read(reinterpret_cast<char*>(msg.data()), fileSize);
-         infile.close();
-
-         Digest digest = message(msg);
-
-         if (doublehash) {
-            digest = hashDigest(digest);
-            std::cout << "Double hashed ";
-         }
-
-         std::cout << "SHA-256 (" << file << ") = ";
-         for (const auto& w : digest)
-            std::cout << std::setw(8) << std::setfill('0') << std::hex << w;
-         std::cout << std::endl;
-
-         msg.clear();
-      }
-   }
-   // Honestly if we catch an error, there is a bug somewhere in the
-   // code that I have not caught. Pun intended.
-   catch (const std::out_of_range& e) {
-      std::cerr << "range error: " << e.what() << std::endl;
-   } catch (const std::exception& e) {
-      std::cerr << "std::excepton: " << e.what() << std::endl;
-   } catch (...) {
-      std::cerr << "unknown exception thrown" << std::endl;
+   for (std::size_t i = 0; i < digest.size(); ++i) {
+      write_be32(digest[i], &out[i * 4U]);
    }
 
-   return 0;
+   return out;
 }
+
+DigestBytes digest_words_to_bytes_le(const DigestWords& digest) noexcept {
+   DigestBytes out{};
+
+   for (std::size_t i = 0; i < digest.size(); ++i) {
+      write_le32(digest[i], &out[i * 4U]);
+   }
+
+   return out;
+}
+
+} // namespace cpu_miner::sha256
 

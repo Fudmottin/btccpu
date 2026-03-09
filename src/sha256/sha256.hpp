@@ -6,7 +6,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
-#include <vector>
 
 namespace cpu_miner::sha256 {
 

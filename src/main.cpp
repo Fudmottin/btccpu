@@ -6,7 +6,10 @@
 #include <string>
 
 #include "mining_job/coinbase.hpp"
+#include "mining_job/merkle.hpp"
+#include "sha256/sha256.hpp"
 #include "stratum_client/stratum_client.hpp"
+#include "util/hex.hpp"
 
 int main(int argc, char* argv[]) {
    try {
@@ -29,21 +32,38 @@ int main(int argc, char* argv[]) {
          const std::string extranonce2 =
             cpu_miner::extranonce2_from_counter(0, sub.extranonce2_size);
 
-         const std::string coinbase =
+         const std::string coinbase_hex =
             cpu_miner::make_coinbase_hex(job, sub, extranonce2);
 
          std::cout << "coinbase demo:\n";
          std::cout << "  extranonce2: " << extranonce2 << '\n';
-         std::cout << "  coinbase hex chars: " << coinbase.size() << '\n';
-         std::cout << "  coinbase bytes: " << (coinbase.size() / 2U) << '\n';
+         std::cout << "  coinbase hex chars: " << coinbase_hex.size() << '\n';
+         std::cout << "  coinbase bytes: " << (coinbase_hex.size() / 2U)
+                   << '\n';
 
          const std::size_t preview_len =
-            std::min<std::size_t>(coinbase.size(), 64U);
-         std::cout << "  coinbase prefix: " << coinbase.substr(0, preview_len)
-                   << '\n';
+            std::min<std::size_t>(coinbase_hex.size(), 64U);
+         std::cout << "  coinbase prefix: "
+                   << coinbase_hex.substr(0, preview_len) << '\n';
          std::cout << "  coinbase suffix: "
-          << coinbase.substr(coinbase.size() > 192 ? coinbase.size() - 192 : 0)
-          << '\n';
+                   << coinbase_hex.substr(
+                         coinbase_hex.size() > 192 ? coinbase_hex.size() - 192 : 0)
+                   << '\n';
+
+         const auto coinbase_bytes = cpu_miner::hex_to_bytes(coinbase_hex);
+         const auto coinbase_hash_words =
+            cpu_miner::sha256::dbl_sha256_words(coinbase_bytes);
+         const auto coinbase_hash_bytes =
+            cpu_miner::sha256::digest_words_to_bytes_be(coinbase_hash_words);
+         const std::string coinbase_hash_hex =
+            cpu_miner::bytes_to_hex(coinbase_hash_bytes);
+
+         std::cout << "  coinbase_hash: " << coinbase_hash_hex << '\n';
+
+         const auto merkle_root =
+         cpu_miner::merkle_root_hex(coinbase_hash_bytes, job.merkle_branch);
+
+         std::cout << "  merkle_root: " << merkle_root << '\n';
       } else {
          std::cout << "coinbase demo skipped: missing subscription or job\n";
       }
