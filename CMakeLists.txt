@@ -68,6 +68,14 @@ add_library(cpu_miner_mining_job
    src/mining_job/header.cpp
 )
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
+   set_source_files_properties(
+      src/mining_job/target.cpp
+      PROPERTIES
+      COMPILE_OPTIONS "-Wno-conversion;-Wno-sign-conversion;-Wno-old-style-cast;-Wno-pedantic"
+   )
+endif()
+
 target_include_directories(cpu_miner_mining_job
    PUBLIC
       ${CMAKE_CURRENT_SOURCE_DIR}/src

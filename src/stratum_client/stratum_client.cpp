@@ -56,6 +56,16 @@ void StratumClient::run_until_notify() {
    }
 }
 
+const std::optional<SubscriptionContext>&
+StratumClient::subscription() const noexcept {
+   return subscription_;
+}
+
+const std::optional<MiningJob>&
+StratumClient::current_job() const noexcept {
+   return current_job_;
+}
+
 void StratumClient::send_json(const boost::json::object& message) {
    std::string wire = boost::json::serialize(message);
    wire.push_back('\n');

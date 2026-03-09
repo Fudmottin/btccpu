@@ -23,6 +23,10 @@ class StratumClient {
    void authorize(const std::string& user, const std::string& password);
    void run_until_notify();
 
+   [[nodiscard]] const std::optional<SubscriptionContext>&
+   subscription() const noexcept;
+   [[nodiscard]] const std::optional<MiningJob>& current_job() const noexcept;
+
  private:
    void send_json(const boost::json::object& message);
    std::string read_line();

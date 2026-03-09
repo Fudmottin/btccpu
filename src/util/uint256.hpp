@@ -37,7 +37,7 @@ static_assert(
     "uint256 requires compiler support for unsigned __int128 (Clang/GCC).");
 #endif
 
-namespace u256 {
+namespace cpu_miner::u256 {
 
 struct uint256 final {
    using limb_type = std::uint64_t;
@@ -891,8 +891,8 @@ constexpr int digit_val_(char c) noexcept {
    return -1;
 }
 
-constexpr u256::uint256 operator"" _u256(unsigned long long v) noexcept {
-   return u256::uint256{static_cast<std::uint64_t>(v)};
+constexpr cpu_miner::u256::uint256 operator"" _u256(unsigned long long v) noexcept {
+   return cpu_miner::u256::uint256{static_cast<std::uint64_t>(v)};
 }
 
 constexpr uint256 operator"" _u256(const char* s, std::size_t n) noexcept {
@@ -921,19 +921,19 @@ constexpr uint256 operator"" _u256(const char* s, std::size_t n) noexcept {
 
 } // namespace literals
 
-} // namespace u256
+} // namespace cpu_miner::u256
 
 namespace std {
 
 template<>
-class numeric_limits<u256::uint256> {
+class numeric_limits<cpu_miner::u256::uint256> {
  public:
    static constexpr bool is_specialized = true;
 
-   static constexpr u256::uint256 min() noexcept { return u256::uint256{0}; }
+   static constexpr cpu_miner::u256::uint256 min() noexcept { return cpu_miner::u256::uint256{0}; }
 
-   static constexpr u256::uint256 max() noexcept {
-      u256::uint256 x{};
+   static constexpr cpu_miner::u256::uint256 max() noexcept {
+      cpu_miner::u256::uint256 x{};
       x.data()[0] = ~std::uint64_t{0};
       x.data()[1] = ~std::uint64_t{0};
       x.data()[2] = ~std::uint64_t{0};

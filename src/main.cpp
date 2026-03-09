@@ -1,8 +1,11 @@
 // src/main.cpp
+
+#include <algorithm>
 #include <exception>
 #include <iostream>
 #include <string>
 
+#include "mining_job/coinbase.hpp"
 #include "stratum_client/stratum_client.hpp"
 
 int main(int argc, char* argv[]) {
@@ -18,6 +21,32 @@ int main(int argc, char* argv[]) {
       client.subscribe();
       client.authorize(user, password);
       client.run_until_notify();
+
+      if (client.subscription() && client.current_job()) {
+         const auto& sub = *client.subscription();
+         const auto& job = *client.current_job();
+
+         const std::string extranonce2 =
+            cpu_miner::extranonce2_from_counter(0, sub.extranonce2_size);
+
+         const std::string coinbase =
+            cpu_miner::make_coinbase_hex(job, sub, extranonce2);
+
+         std::cout << "coinbase demo:\n";
+         std::cout << "  extranonce2: " << extranonce2 << '\n';
+         std::cout << "  coinbase hex chars: " << coinbase.size() << '\n';
+         std::cout << "  coinbase bytes: " << (coinbase.size() / 2U) << '\n';
+
+         const std::size_t preview_len =
+            std::min<std::size_t>(coinbase.size(), 64U);
+         std::cout << "  coinbase prefix: " << coinbase.substr(0, preview_len)
+                   << '\n';
+         std::cout << "  coinbase suffix: "
+          << coinbase.substr(coinbase.size() > 192 ? coinbase.size() - 192 : 0)
+          << '\n';
+      } else {
+         std::cout << "coinbase demo skipped: missing subscription or job\n";
+      }
 
       std::cout << "Probe complete\n";
       return 0;
