@@ -61,9 +61,12 @@ StratumClient::subscription() const noexcept {
    return subscription_;
 }
 
-const std::optional<MiningJob>&
-StratumClient::current_job() const noexcept {
+const std::optional<MiningJob>& StratumClient::current_job() const noexcept {
    return current_job_;
+}
+
+double StratumClient::difficulty() const noexcept {
+   return difficulty_;
 }
 
 void StratumClient::send_json(const boost::json::object& message) {
@@ -116,7 +119,7 @@ void StratumClient::handle_message(std::string_view line) {
             return;
          }
 
-         print_set_difficulty(*msg);
+         difficulty_ = msg->difficulty;
          return;
       }
 
@@ -128,21 +131,19 @@ void StratumClient::handle_message(std::string_view line) {
             return;
          }
 
-         current_job_ = MiningJob{
-            .job_id = msg->job_id,
-            .prevhash = msg->prevhash,
-            .coinb1 = msg->coinb1,
-            .coinb2 = msg->coinb2,
-            .merkle_branch = msg->merkle_branch,
-            .version = msg->version,
-            .nbits = msg->nbits,
-            .ntime = msg->ntime,
-            .clean_jobs = msg->clean_jobs
-         };
+         current_job_ = MiningJob{.job_id = msg->job_id,
+                                  .prevhash = msg->prevhash,
+                                  .coinb1 = msg->coinb1,
+                                  .coinb2 = msg->coinb2,
+                                  .merkle_branch = msg->merkle_branch,
+                                  .version = msg->version,
+                                  .nbits = msg->nbits,
+                                  .ntime = msg->ntime,
+                                  .clean_jobs = msg->clean_jobs};
 
          if (subscription_) {
             std::cout << "subscription cached: extranonce1="
-            << subscription_->extranonce1 << '\n';
+                      << subscription_->extranonce1 << '\n';
          }
          if (current_job_) {
             std::cout << "job cached: " << current_job_->job_id << '\n';

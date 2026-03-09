@@ -48,6 +48,7 @@ int main(int argc, char* argv[]) {
       client.run_until_notify();
 
       if (client.subscription() && client.current_job()) {
+         std::cout << "Difficulty: " << client.difficulty() << "\n";
          const auto& sub = *client.subscription();
          const auto& job = *client.current_job();
 

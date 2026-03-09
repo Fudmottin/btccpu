@@ -26,6 +26,7 @@ class StratumClient {
    [[nodiscard]] const std::optional<SubscriptionContext>&
    subscription() const noexcept;
    [[nodiscard]] const std::optional<MiningJob>& current_job() const noexcept;
+   [[nodiscard]] double difficulty() const noexcept;
 
  private:
    void send_json(const boost::json::object& message);
@@ -46,6 +47,7 @@ class StratumClient {
 
    std::optional<SubscriptionContext> subscription_;
    std::optional<MiningJob> current_job_;
+   double difficulty_{1.0};
 };
 
 } // namespace cpu_miner
