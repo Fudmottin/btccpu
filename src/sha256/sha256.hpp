@@ -15,6 +15,14 @@ using DigestBytes = std::array<std::uint8_t, 32>;
 using BlockWords = std::array<Word, 16>;
 using Schedule = std::array<Word, 64>;
 
+DigestWords initial_state() noexcept;
+
+DigestWords compress_block(const DigestWords& state, const BlockWords& block);
+
+DigestWords hash_digest_words(const DigestWords& digest);
+DigestWords dbl_sha256_two_block_header(const DigestWords& midstate,
+                                        const BlockWords& block1);
+
 DigestWords sha256_words(std::span<const std::uint8_t> data);
 DigestWords dbl_sha256_words(std::span<const std::uint8_t> data);
 

@@ -162,14 +162,48 @@ DigestWords sha256_impl(std::span<const std::uint8_t> data) {
          block[i] = read_be32(&message[offset + (i * 4U)]);
       }
 
-      const Schedule schedule = make_schedule(block);
-      digest = run_schedule(schedule, digest);
+      digest = run_schedule(make_schedule(block), digest);
    }
 
    return digest;
 }
 
+BlockWords digest_words_to_padded_block(const DigestWords& digest) noexcept {
+   BlockWords block{};
+
+   for (std::size_t i = 0; i < digest.size(); ++i) {
+      block[i] = digest[i];
+   }
+
+   block[8] = 0x80000000U;
+   block[9] = 0U;
+   block[10] = 0U;
+   block[11] = 0U;
+   block[12] = 0U;
+   block[13] = 0U;
+   block[14] = 0U;
+   block[15] = 0x00000100U;
+
+   return block;
+}
+
 } // namespace
+
+DigestWords initial_state() noexcept { return H0; }
+
+DigestWords compress_block(const DigestWords& state, const BlockWords& block) {
+   return run_schedule(make_schedule(block), state);
+}
+
+DigestWords hash_digest_words(const DigestWords& digest) {
+   return compress_block(H0, digest_words_to_padded_block(digest));
+}
+
+DigestWords dbl_sha256_two_block_header(const DigestWords& midstate,
+                                        const BlockWords& block1) {
+   const DigestWords first = compress_block(midstate, block1);
+   return hash_digest_words(first);
+}
 
 DigestWords sha256_words(std::span<const std::uint8_t> data) {
    return sha256_impl(data);
@@ -177,8 +211,7 @@ DigestWords sha256_words(std::span<const std::uint8_t> data) {
 
 DigestWords dbl_sha256_words(std::span<const std::uint8_t> data) {
    const DigestWords first = sha256_impl(data);
-   const DigestBytes first_bytes = digest_words_to_bytes_be(first);
-   return sha256_impl(first_bytes);
+   return hash_digest_words(first);
 }
 
 DigestBytes digest_words_to_bytes_be(const DigestWords& digest) noexcept {

@@ -92,5 +92,25 @@ std::string bytes_to_hex(std::span<const std::uint8_t> bytes) {
    return out;
 }
 
+std::uint32_t u32_from_hex_be(std::string_view hex) {
+   if (hex.size() != 8U) {
+      throw std::invalid_argument("u32_from_hex_be requires 8 hex chars");
+   }
+   if (!is_lower_hex_string(hex)) {
+      throw std::invalid_argument("u32_from_hex_be requires lowercase hex");
+   }
+
+   std::uint32_t value = 0;
+   for (char ch : hex) {
+      const int v = hex_value(ch);
+      if (v < 0) {
+         throw std::invalid_argument(
+            "u32_from_hex_be encountered invalid hex digit");
+      }
+      value = static_cast<std::uint32_t>((value << 4U) |
+                                         static_cast<std::uint32_t>(v));
+   }
+   return value;
+}
 } // namespace cpu_miner
 

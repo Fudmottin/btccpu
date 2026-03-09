@@ -19,6 +19,7 @@ std::string hex_from_u64_be(std::uint64_t value, std::size_t size_bytes);
 
 std::vector<std::uint8_t> hex_to_bytes(std::string_view hex);
 std::string bytes_to_hex(std::span<const std::uint8_t> bytes);
+std::uint32_t u32_from_hex_be(std::string_view hex);
 
 } // namespace cpu_miner
 
