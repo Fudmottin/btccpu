@@ -92,7 +92,7 @@ std::string StratumClient::read_line() {
 void StratumClient::handle_message(std::string_view line) {
    std::cout << "<- " << line << '\n';
 
-   boost::json::error_code ec;
+   boost::system::error_code ec;
    const boost::json::value value = boost::json::parse(line, ec);
    if (ec) {
       std::cerr << "JSON parse error: " << ec.message() << '\n';

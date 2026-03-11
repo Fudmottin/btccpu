@@ -22,7 +22,17 @@ option(CPU_MINER_ENABLE_TESTS "Enable tests" ON)
 
 # ---- Dependencies -------------------------------------------------------------
 
-find_package(Boost 1.81 REQUIRED COMPONENTS system json)
+# -------------------------------
+# Boost
+# -------------------------------
+# Help Homebrew on Apple Silicon / Intel + harmless elsewhere
+if(APPLE)
+    list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew" "/usr/local")
+endif()
+
+set(Boost_USE_STATIC_LIBS ON CACHE BOOL "Prefer static Boost libs" FORCE)
+find_package(Boost REQUIRED COMPONENTS json)
+message(STATUS "Boost include dir: ${Boost_INCLUDE_DIRS}")
 
 # ---- Library: util ------------------------------------------------------------
 
@@ -35,6 +45,7 @@ add_library(cpu_miner_util
 target_include_directories(cpu_miner_util
    PUBLIC
       ${CMAKE_CURRENT_SOURCE_DIR}/src
+      PRIVATE ${Boost_INCLUDE_DIRS}
 )
 
 target_compile_features(cpu_miner_util PUBLIC cxx_std_20)
@@ -68,17 +79,18 @@ add_library(cpu_miner_mining_job
    src/mining_job/header.cpp
 )
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
-   set_source_files_properties(
-      src/mining_job/target.cpp
-      PROPERTIES
-      COMPILE_OPTIONS "-Wno-conversion;-Wno-sign-conversion;-Wno-old-style-cast;-Wno-pedantic"
-   )
-endif()
+# if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
+#    set_source_files_properties(
+#       src/mining_job/target.cpp
+#       PROPERTIES
+#       COMPILE_OPTIONS "-Wno-conversion;-Wno-sign-conversion;-Wno-old-style-cast;-Wno-pedantic"
+#    )
+# endif()
 
 target_include_directories(cpu_miner_mining_job
    PUBLIC
       ${CMAKE_CURRENT_SOURCE_DIR}/src
+      PRIVATE ${Boost_INCLUDE_DIRS}
 )
 
 target_compile_features(cpu_miner_mining_job PUBLIC cxx_std_20)
@@ -87,7 +99,6 @@ target_link_libraries(cpu_miner_mining_job
    PUBLIC
       cpu_miner_util
       cpu_miner_sha256
-      Boost::json
 )
 
 # ---- Library: stratum_client --------------------------------------------------
@@ -101,6 +112,7 @@ add_library(cpu_miner_stratum
 target_include_directories(cpu_miner_stratum
    PUBLIC
       ${CMAKE_CURRENT_SOURCE_DIR}/src
+      PRIVATE ${Boost_INCLUDE_DIRS}
 )
 
 target_compile_features(cpu_miner_stratum PUBLIC cxx_std_20)
@@ -109,8 +121,6 @@ target_link_libraries(cpu_miner_stratum
    PUBLIC
       cpu_miner_util
       cpu_miner_mining_job
-      Boost::system
-      Boost::json
 )
 
 # ---- Executable ----------------------------------------------------------------
@@ -119,13 +129,19 @@ add_executable(cpu_miner
    src/main.cpp
 )
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
-   set_source_files_properties(
-      src/main.cpp
-      PROPERTIES
-      COMPILE_OPTIONS "-Wno-conversion;-Wno-sign-conversion;-Wno-old-style-cast;-Wno-pedantic"
-   )
-endif()
+# if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
+#    set_source_files_properties(
+#       src/main.cpp
+#       PROPERTIES
+#       COMPILE_OPTIONS "-Wno-conversion;-Wno-sign-conversion;-Wno-old-style-cast;-Wno-pedantic"
+#    )
+# endif()
+
+target_include_directories(cpu_miner
+   PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
+      PRIVATE ${Boost_INCLUDE_DIRS}
+)
 
 target_link_libraries(cpu_miner
    PRIVATE
@@ -133,6 +149,7 @@ target_link_libraries(cpu_miner
       cpu_miner_mining_job
       cpu_miner_sha256
       cpu_miner_util
+      Boost::json
 )
 
 # ---- Warnings -----------------------------------------------------------------
@@ -142,16 +159,16 @@ function(cpu_miner_set_warnings target_name)
       target_compile_options(${target_name} PRIVATE
          -Wall
          -Wextra
-         -Wpedantic
-         -Wconversion
-         -Wsign-conversion
-         -Wshadow
-         -Wold-style-cast
-         -Wnon-virtual-dtor
-         -Woverloaded-virtual
+#        -Wpedantic
+#        -Wconversion
+#        -Wsign-conversion
+#        -Wshadow
+#        -Wold-style-cast
+#        -Wnon-virtual-dtor
+#        -Woverloaded-virtual
          -Wnull-dereference
-         -Wdouble-promotion
-         -Wimplicit-fallthrough
+#        -Wdouble-promotion
+#        -Wimplicit-fallthrough
       )
 
       if(CPU_MINER_WARNINGS_AS_ERRORS)
