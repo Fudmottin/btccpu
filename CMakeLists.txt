@@ -119,6 +119,14 @@ add_executable(cpu_miner
    src/main.cpp
 )
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
+   set_source_files_properties(
+      src/main.cpp
+      PROPERTIES
+      COMPILE_OPTIONS "-Wno-conversion;-Wno-sign-conversion;-Wno-old-style-cast;-Wno-pedantic"
+   )
+endif()
+
 target_link_libraries(cpu_miner
    PRIVATE
       cpu_miner_stratum
