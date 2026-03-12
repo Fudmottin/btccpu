@@ -173,7 +173,7 @@ int main(int argc, char* argv[]) {
                    << '\n';
 
          constexpr std::uint64_t kNonceBegin = 0ULL;
-         constexpr std::uint64_t kNonceEnd = 10'000'000ULL;
+         constexpr std::uint64_t kNonceEnd = 20'000'000ULL;
          constexpr std::uint64_t kProgressInterval = 1'000'000ULL;
 
          bool found_share = false;
