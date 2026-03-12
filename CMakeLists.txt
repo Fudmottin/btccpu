@@ -19,19 +19,21 @@ endif()
 
 option(CPU_MINER_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 option(CPU_MINER_ENABLE_TESTS "Enable tests" ON)
+option(CPU_MINER_ENABLE_NATIVE_OPTIMIZATION
+   "Enable -march=native/-mtune=native for Release-style local builds" OFF)
 
 # ---- Dependencies -------------------------------------------------------------
 
-# -------------------------------
-# Boost
-# -------------------------------
-# Help Homebrew on Apple Silicon / Intel + harmless elsewhere
+# Homebrew paths are harmless to prepend on Apple platforms.
 if(APPLE)
-    list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew" "/usr/local")
+   list(PREPEND CMAKE_PREFIX_PATH "/opt/homebrew" "/usr/local")
 endif()
 
-set(Boost_USE_STATIC_LIBS ON CACHE BOOL "Prefer static Boost libs" FORCE)
+# Force classic FindBoost instead of BoostConfig.cmake.
+# This avoids Homebrew/component config mismatches such as boost_systemConfig.cmake.
+set(Boost_NO_BOOST_CMAKE ON)
 find_package(Boost REQUIRED COMPONENTS json)
+
 message(STATUS "Boost include dir: ${Boost_INCLUDE_DIRS}")
 
 # ---- Library: util ------------------------------------------------------------
@@ -45,7 +47,8 @@ add_library(cpu_miner_util
 target_include_directories(cpu_miner_util
    PUBLIC
       ${CMAKE_CURRENT_SOURCE_DIR}/src
-      PRIVATE ${Boost_INCLUDE_DIRS}
+   SYSTEM PRIVATE
+      ${Boost_INCLUDE_DIRS}
 )
 
 target_compile_features(cpu_miner_util PUBLIC cxx_std_20)
@@ -60,6 +63,8 @@ add_library(cpu_miner_sha256
 target_include_directories(cpu_miner_sha256
    PUBLIC
       ${CMAKE_CURRENT_SOURCE_DIR}/src
+   SYSTEM PRIVATE
+      ${Boost_INCLUDE_DIRS}
 )
 
 target_compile_features(cpu_miner_sha256 PUBLIC cxx_std_20)
@@ -77,6 +82,7 @@ add_library(cpu_miner_mining_job
    src/mining_job/merkle.cpp
    src/mining_job/target.cpp
    src/mining_job/header.cpp
+   src/mining_job/work_state.cpp
 )
 
 # if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
@@ -90,7 +96,8 @@ add_library(cpu_miner_mining_job
 target_include_directories(cpu_miner_mining_job
    PUBLIC
       ${CMAKE_CURRENT_SOURCE_DIR}/src
-      PRIVATE ${Boost_INCLUDE_DIRS}
+   SYSTEM PRIVATE
+      ${Boost_INCLUDE_DIRS}
 )
 
 target_compile_features(cpu_miner_mining_job PUBLIC cxx_std_20)
@@ -112,7 +119,8 @@ add_library(cpu_miner_stratum
 target_include_directories(cpu_miner_stratum
    PUBLIC
       ${CMAKE_CURRENT_SOURCE_DIR}/src
-      PRIVATE ${Boost_INCLUDE_DIRS}
+   SYSTEM PRIVATE
+      ${Boost_INCLUDE_DIRS}
 )
 
 target_compile_features(cpu_miner_stratum PUBLIC cxx_std_20)
@@ -140,7 +148,8 @@ add_executable(cpu_miner
 target_include_directories(cpu_miner
    PUBLIC
       ${CMAKE_CURRENT_SOURCE_DIR}/src
-      PRIVATE ${Boost_INCLUDE_DIRS}
+   SYSTEM PRIVATE
+      ${Boost_INCLUDE_DIRS}
 )
 
 target_link_libraries(cpu_miner
@@ -152,7 +161,19 @@ target_link_libraries(cpu_miner
       Boost::json
 )
 
-# ---- Warnings -----------------------------------------------------------------
+# ---- Warnings and Optimizations ----------------------------------------------
+
+function(cpu_miner_set_optimization target_name)
+   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
+      if(CMAKE_BUILD_TYPE STREQUAL "Release")
+         target_compile_options(${target_name} PRIVATE -O3)
+      endif()
+
+      if(CPU_MINER_ENABLE_NATIVE_OPTIMIZATION)
+         target_compile_options(${target_name} PRIVATE -march=native -mtune=native)
+      endif()
+   endif()
+endfunction()
 
 function(cpu_miner_set_warnings target_name)
    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
@@ -187,6 +208,12 @@ cpu_miner_set_warnings(cpu_miner_sha256)
 cpu_miner_set_warnings(cpu_miner_mining_job)
 cpu_miner_set_warnings(cpu_miner_stratum)
 cpu_miner_set_warnings(cpu_miner)
+
+cpu_miner_set_optimization(cpu_miner_util)
+cpu_miner_set_optimization(cpu_miner_sha256)
+cpu_miner_set_optimization(cpu_miner_mining_job)
+cpu_miner_set_optimization(cpu_miner_stratum)
+cpu_miner_set_optimization(cpu_miner)
 
 # ---- Tests --------------------------------------------------------------------
 
