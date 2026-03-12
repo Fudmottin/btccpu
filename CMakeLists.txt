@@ -85,13 +85,13 @@ add_library(cpu_miner_mining_job
    src/mining_job/work_state.cpp
 )
 
-# if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
-#    set_source_files_properties(
-#       src/mining_job/target.cpp
-#       PROPERTIES
-#       COMPILE_OPTIONS "-Wno-conversion;-Wno-sign-conversion;-Wno-old-style-cast;-Wno-pedantic"
-#    )
-# endif()
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
+   set_source_files_properties(
+      src/mining_job/target.cpp
+      PROPERTIES
+      COMPILE_OPTIONS "-Wno-conversion;-Wno-sign-conversion;-Wno-old-style-cast;-Wno-pedantic"
+   )
+endif()
 
 target_include_directories(cpu_miner_mining_job
    PUBLIC
@@ -137,13 +137,13 @@ add_executable(cpu_miner
    src/main.cpp
 )
 
-# if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
-#    set_source_files_properties(
-#       src/main.cpp
-#       PROPERTIES
-#       COMPILE_OPTIONS "-Wno-conversion;-Wno-sign-conversion;-Wno-old-style-cast;-Wno-pedantic"
-#    )
-# endif()
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
+   set_source_files_properties(
+      src/main.cpp
+      PROPERTIES
+      COMPILE_OPTIONS "-Wno-conversion;-Wno-sign-conversion;-Wno-old-style-cast;-Wno-pedantic"
+   )
+endif()
 
 target_include_directories(cpu_miner
    PUBLIC
@@ -180,9 +180,9 @@ function(cpu_miner_set_warnings target_name)
       target_compile_options(${target_name} PRIVATE
          -Wall
          -Wextra
-#        -Wpedantic
-#        -Wconversion
-#        -Wsign-conversion
+         -Wpedantic
+         -Wconversion
+         -Wsign-conversion
 #        -Wshadow
 #        -Wold-style-cast
 #        -Wnon-virtual-dtor
