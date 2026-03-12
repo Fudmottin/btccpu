@@ -6,7 +6,6 @@
 #include <exception>
 #include <iomanip>
 #include <iostream>
-#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -44,7 +43,7 @@ std::string short_hash_hex(const cpu_miner::sha256::DigestBytes& digest_bytes,
 void print_scan_line(std::uint32_t nonce,
                      const cpu_miner::sha256::DigestBytes& digest_bytes,
                      bool meets_network, bool meets_share) {
-   std::cout << "  nonce=" << std::setw(3) << nonce
+   std::cout << "  nonce=" << std::setw(10) << nonce
              << " hash=" << short_hash_hex(digest_bytes)
              << " net=" << (meets_network ? 'Y' : 'n')
              << " share=" << (meets_share ? 'Y' : 'n') << '\n';
@@ -149,14 +148,15 @@ int main(int argc, char* argv[]) {
                    << '\n';
 
          constexpr std::uint32_t kNonceBegin = 0U;
-         constexpr std::uint32_t kNonceEnd = 0xffffffffU;
+         constexpr std::uint32_t kNonceEnd = 0xfffU;
 
          bool found_share = false;
          bool found_block = false;
 
          cpu_miner::reset_nonce(work);
+         work.nonce = kNonceBegin;
 
-         for (; work.nonce <= kNonceEnd; ++work.nonce) {
+         for (;;) {
             cpu_miner::set_header_nonce(work.header_template, work.nonce);
 
             const auto hash_words =
@@ -196,26 +196,31 @@ int main(int argc, char* argv[]) {
                          << (accepted ? "accepted" : "rejected") << '\n';
             }
 
-            if (!found_share) {
-               std::cout << "  no share hit in nonce range [" << kNonceBegin
-                         << ", " << kNonceEnd << "]\n";
+            if (work.nonce == kNonceEnd) {
+               break;
             }
 
-            if (!found_block) {
-               std::cout << "  no block candidate in nonce range ["
-                         << kNonceBegin << ", " << kNonceEnd << "]\n";
-            }
-         }
-         else {
-            std::cout << "coinbase demo skipped: missing subscription or job\n";
+            ++work.nonce;
          }
 
-         std::cout << "Probe complete\n";
-         return 0;
+         if (!found_share) {
+            std::cout << "  no share hit in nonce range [" << kNonceBegin
+                      << ", " << kNonceEnd << "]\n";
+         }
+
+         if (!found_block) {
+            std::cout << "  no block candidate in nonce range [" << kNonceBegin
+                      << ", " << kNonceEnd << "]\n";
+         }
+      } else {
+         std::cout << "coinbase demo skipped: missing subscription or job\n";
       }
-      catch (const std::exception& ex) {
-         std::cerr << "fatal: " << ex.what() << '\n';
-         return 1;
-      }
+
+      std::cout << "Probe complete\n";
+      return 0;
+   } catch (const std::exception& ex) {
+      std::cerr << "fatal: " << ex.what() << '\n';
+      return 1;
    }
+}
 
