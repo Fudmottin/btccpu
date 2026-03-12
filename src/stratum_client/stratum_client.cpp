@@ -3,6 +3,7 @@
 #include <boost/asio/read_until.hpp>
 #include <boost/asio/write.hpp>
 
+#include <cmath>
 #include <iostream>
 #include <ostream>
 #include <sstream>
@@ -34,6 +35,22 @@ void StratumClient::subscribe() {
    message["params"] = boost::json::array{};
 
    std::cout << "-> mining.subscribe\n";
+   send_json(message);
+}
+
+void StratumClient::suggest_difficulty(double difficulty) {
+   if (!(difficulty > 0.0) || !std::isfinite(difficulty)) {
+      throw std::invalid_argument(
+         "suggested difficulty must be finite and > 0");
+   }
+
+   boost::json::object message;
+   message["id"] = next_id_++;
+   message["method"] = "mining.suggest_difficulty";
+   message["params"] = boost::json::array{difficulty};
+
+   std::cout << "-> mining.suggest_difficulty difficulty=" << difficulty
+             << '\n';
    send_json(message);
 }
 

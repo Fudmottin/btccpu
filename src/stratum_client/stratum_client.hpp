@@ -6,6 +6,7 @@
 #include <boost/asio.hpp>
 #include <boost/json.hpp>
 
+#include <cmath>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -21,6 +22,7 @@ class StratumClient {
 
    void connect();
    void subscribe();
+   void suggest_difficulty(double difficulty);
    void authorize(const std::string& user, const std::string& password);
    void run_until_notify();
    bool submit_share(const ShareSubmission& share);

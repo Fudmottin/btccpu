@@ -1,6 +1,8 @@
 // src/main.cpp
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <exception>
@@ -49,6 +51,29 @@ void print_scan_line(std::uint32_t nonce,
              << " share=" << (meets_share ? 'Y' : 'n') << '\n';
 }
 
+void print_progress(std::uint64_t hashes_done, std::uint64_t total_hashes,
+                    const std::chrono::steady_clock::time_point& start_time) {
+   static constexpr std::array<char, 4> spinner{'-', '\\', '|', '/'};
+   const char spin = spinner[static_cast<std::size_t>(
+      (hashes_done / 1000000ULL) % spinner.size())];
+
+   const auto now = std::chrono::steady_clock::now();
+   const std::chrono::duration<double> elapsed = now - start_time;
+   const double seconds = elapsed.count();
+   const double rate =
+      (seconds > 0.0) ? static_cast<double>(hashes_done) / seconds : 0.0;
+   const double percent = (total_hashes > 0U)
+                             ? 100.0 * static_cast<double>(hashes_done) /
+                                  static_cast<double>(total_hashes)
+                             : 0.0;
+
+   std::cout << '\r' << spin << " progress: " << hashes_done << '/'
+             << total_hashes << " (" << std::fixed << std::setprecision(2)
+             << percent << "%)"
+             << " rate: " << std::setprecision(0) << rate << " H/s"
+             << std::flush;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -62,6 +87,7 @@ int main(int argc, char* argv[]) {
       cpu_miner::StratumClient client(host, port);
       client.connect();
       client.subscribe();
+      client.suggest_difficulty(1.0);
       client.authorize(user, password);
       client.run_until_notify();
 
@@ -93,7 +119,6 @@ int main(int argc, char* argv[]) {
 
          const std::string coinbase_hash_hex =
             cpu_miner::bytes_to_hex(work.coinbase.coinbase_hash);
-
          std::cout << "  coinbase_hash: " << coinbase_hash_hex << '\n';
 
          const auto decoded_coinbase =
@@ -147,46 +172,62 @@ int main(int argc, char* argv[]) {
          std::cout << "  share difficulty (integer): " << share_difficulty
                    << '\n';
 
-         constexpr std::uint32_t kNonceBegin = 0U;
-         constexpr std::uint32_t kNonceEnd = 0xfffU;
+         constexpr std::uint64_t kNonceBegin = 0ULL;
+         constexpr std::uint64_t kNonceEnd = 10'000'000ULL;
+         constexpr std::uint64_t kProgressInterval = 1'000'000ULL;
 
          bool found_share = false;
          bool found_block = false;
 
          cpu_miner::reset_nonce(work);
-         work.nonce = kNonceBegin;
 
-         for (;;) {
-            cpu_miner::set_header_nonce(work.header_template, work.nonce);
+         const auto start_time = std::chrono::steady_clock::now();
+         const std::uint64_t total_hashes = (kNonceEnd - kNonceBegin) + 1ULL;
+         std::uint64_t hashes_done = 0ULL;
+
+         for (std::uint64_t scan_nonce = kNonceBegin; scan_nonce <= kNonceEnd;
+              ++scan_nonce) {
+            const auto nonce = static_cast<std::uint32_t>(scan_nonce);
+            work.nonce = nonce;
+
+            cpu_miner::set_header_nonce(work.header_template, nonce);
 
             const auto hash_words =
                cpu_miner::hash_header_template(work.header_template);
             const auto hash_bytes =
                cpu_miner::sha256::digest_words_to_bytes_be(hash_words);
 
+            ++hashes_done;
+
+            if ((hashes_done % kProgressInterval) == 0ULL) {
+               print_progress(hashes_done, total_hashes, start_time);
+            }
+
             const bool meets_network =
                cpu_miner::hash_meets_target(hash_bytes, network_target);
             const bool meets_share =
                cpu_miner::hash_meets_target(hash_bytes, share_target);
 
-            const bool should_print = (work.nonce < 8U) || meets_network ||
-                                      meets_share || work.nonce == kNonceEnd;
+            const bool should_print = (scan_nonce < 8ULL) || meets_network ||
+                                      meets_share || (scan_nonce == kNonceEnd);
 
             if (should_print) {
-               print_scan_line(work.nonce, hash_bytes, meets_network,
-                               meets_share);
+               if (hashes_done >= kProgressInterval) {
+                  std::cout << '\n';
+               }
+               print_scan_line(nonce, hash_bytes, meets_network, meets_share);
             }
 
             if (meets_network) {
                found_block = true;
-               std::cout << "  BLOCK CANDIDATE nonce=" << work.nonce
+               std::cout << "  BLOCK CANDIDATE nonce=" << nonce
                          << " hash=" << cpu_miner::bytes_to_hex(hash_bytes)
                          << '\n';
             }
 
             if (meets_share) {
                found_share = true;
-               std::cout << "  SHARE HIT nonce=" << work.nonce
+               std::cout << "  SHARE HIT nonce=" << nonce
                          << " hash=" << cpu_miner::bytes_to_hex(hash_bytes)
                          << '\n';
 
@@ -195,13 +236,24 @@ int main(int argc, char* argv[]) {
                std::cout << "  share submission: "
                          << (accepted ? "accepted" : "rejected") << '\n';
             }
-
-            if (work.nonce == kNonceEnd) {
-               break;
-            }
-
-            ++work.nonce;
          }
+
+         if (hashes_done >= kProgressInterval) {
+            std::cout << '\n';
+         }
+
+         const auto end_time = std::chrono::steady_clock::now();
+         const std::chrono::duration<double> elapsed = end_time - start_time;
+         const double rate =
+            (elapsed.count() > 0.0)
+               ? static_cast<double>(hashes_done) / elapsed.count()
+               : 0.0;
+
+         std::cout << "  scanned hashes: " << hashes_done << '\n';
+         std::cout << "  elapsed seconds: " << std::fixed
+                   << std::setprecision(3) << elapsed.count() << '\n';
+         std::cout << "  average rate: " << std::setprecision(0) << rate
+                   << " H/s\n";
 
          if (!found_share) {
             std::cout << "  no share hit in nonce range [" << kNonceBegin
