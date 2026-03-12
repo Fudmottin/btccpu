@@ -9,6 +9,7 @@
 #include "mining_job/coinbase.hpp"
 #include "mining_job/header.hpp"
 #include "mining_job/job.hpp"
+#include "mining_job/share.hpp"
 
 namespace cpu_miner {
 
@@ -35,6 +36,8 @@ struct WorkState {
 
 void reset_nonce(WorkState& work) noexcept;
 void advance_extranonce2(WorkState& work);
+
+[[nodiscard]] ShareSubmission make_share_submission(const WorkState& work);
 
 } // namespace cpu_miner
 

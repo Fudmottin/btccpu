@@ -9,11 +9,24 @@
 #include <string_view>
 
 #include "mining_job/merkle.hpp"
+#include "mining_job/share.hpp"
 #include "mining_job/work_state.hpp"
 #include "util/hex.hpp"
 
 namespace cpu_miner {
 namespace {
+
+std::string hex_u32_be(std::uint32_t value) {
+   static constexpr char digits[] = "0123456789abcdef";
+   std::string out(8, '0');
+
+   for (int i = 7; i >= 0; --i) {
+      out[static_cast<std::size_t>(i)] = digits[value & 0x0fU];
+      value >>= 4U;
+   }
+
+   return out;
+}
 
 std::array<std::uint8_t, 32> hash32_from_hex(std::string_view hex) {
    const auto bytes = hex_to_bytes(hex);
@@ -76,6 +89,15 @@ void rebuild_derived_state(WorkState& work) {
 }
 
 } // namespace
+
+ShareSubmission make_share_submission(const WorkState& work) {
+   return ShareSubmission{
+      .job_id = work.job.job_id,
+      .extranonce2_hex = work.coinbase.extranonce2_hex,
+      .ntime_hex = work.job.ntime,
+      .nonce_hex = hex_u32_be(work.nonce),
+   };
+}
 
 bool WorkState::empty() const noexcept {
    return job.job_id.empty() && subscription.extranonce1.empty() &&

@@ -149,7 +149,7 @@ int main(int argc, char* argv[]) {
                    << '\n';
 
          constexpr std::uint32_t kNonceBegin = 0U;
-         constexpr std::uint32_t kNonceEnd = 255U;
+         constexpr std::uint32_t kNonceEnd = 0xffffffffU;
 
          bool found_share = false;
          bool found_block = false;
@@ -189,27 +189,33 @@ int main(int argc, char* argv[]) {
                std::cout << "  SHARE HIT nonce=" << work.nonce
                          << " hash=" << cpu_miner::bytes_to_hex(hash_bytes)
                          << '\n';
+
+               const auto submission = cpu_miner::make_share_submission(work);
+               const bool accepted = client.submit_share(submission);
+               std::cout << "  share submission: "
+                         << (accepted ? "accepted" : "rejected") << '\n';
+            }
+
+            if (!found_share) {
+               std::cout << "  no share hit in nonce range [" << kNonceBegin
+                         << ", " << kNonceEnd << "]\n";
+            }
+
+            if (!found_block) {
+               std::cout << "  no block candidate in nonce range ["
+                         << kNonceBegin << ", " << kNonceEnd << "]\n";
             }
          }
-
-         if (!found_share) {
-            std::cout << "  no share hit in nonce range [" << kNonceBegin
-                      << ", " << kNonceEnd << "]\n";
+         else {
+            std::cout << "coinbase demo skipped: missing subscription or job\n";
          }
 
-         if (!found_block) {
-            std::cout << "  no block candidate in nonce range [" << kNonceBegin
-                      << ", " << kNonceEnd << "]\n";
-         }
-      } else {
-         std::cout << "coinbase demo skipped: missing subscription or job\n";
+         std::cout << "Probe complete\n";
+         return 0;
       }
-
-      std::cout << "Probe complete\n";
-      return 0;
-   } catch (const std::exception& ex) {
-      std::cerr << "fatal: " << ex.what() << '\n';
-      return 1;
+      catch (const std::exception& ex) {
+         std::cerr << "fatal: " << ex.what() << '\n';
+         return 1;
+      }
    }
-}
 

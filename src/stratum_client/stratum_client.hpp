@@ -11,6 +11,7 @@
 #include <string_view>
 
 #include "mining_job/job.hpp"
+#include "mining_job/share.hpp"
 
 namespace cpu_miner {
 
@@ -22,7 +23,9 @@ class StratumClient {
    void subscribe();
    void authorize(const std::string& user, const std::string& password);
    void run_until_notify();
+   bool submit_share(const ShareSubmission& share);
 
+   [[nodiscard]] const std::string& worker_name() const noexcept;
    [[nodiscard]] const std::optional<SubscriptionContext>&
    subscription() const noexcept;
    [[nodiscard]] const std::optional<MiningJob>& current_job() const noexcept;
@@ -48,6 +51,7 @@ class StratumClient {
    std::optional<SubscriptionContext> subscription_;
    std::optional<MiningJob> current_job_;
    double difficulty_{1.0};
+   std::string worker_name_;
 };
 
 } // namespace cpu_miner

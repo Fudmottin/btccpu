@@ -43,6 +43,7 @@ void StratumClient::authorize(const std::string& user,
    message["id"] = next_id_++;
    message["method"] = "mining.authorize";
    message["params"] = boost::json::array{user, password};
+   worker_name_ = user;
 
    std::cout << "-> mining.authorize user=" << user << '\n';
    send_json(message);
@@ -65,9 +66,7 @@ const std::optional<MiningJob>& StratumClient::current_job() const noexcept {
    return current_job_;
 }
 
-double StratumClient::difficulty() const noexcept {
-   return difficulty_;
-}
+double StratumClient::difficulty() const noexcept { return difficulty_; }
 
 void StratumClient::send_json(const boost::json::object& message) {
    std::string wire = boost::json::serialize(message);
@@ -179,6 +178,88 @@ void StratumClient::handle_message(std::string_view line) {
 
    std::cout << "Received unclassified message\n";
    print_json_pretty(value);
+}
+
+bool StratumClient::submit_share(const ShareSubmission& share) {
+   if (worker_name_.empty()) {
+      throw std::runtime_error("worker name is not set; authorize first");
+   }
+
+   boost::json::object message;
+   const int submit_id = next_id_++;
+   message["id"] = submit_id;
+   message["method"] = "mining.submit";
+   message["params"] = boost::json::array{
+      worker_name_,    share.job_id,    share.extranonce2_hex,
+      share.ntime_hex, share.nonce_hex,
+   };
+
+   std::cout << "-> mining.submit"
+             << " worker=" << worker_name_ << " job_id=" << share.job_id
+             << " extranonce2=" << share.extranonce2_hex
+             << " ntime=" << share.ntime_hex << " nonce=" << share.nonce_hex
+             << '\n';
+
+   send_json(message);
+
+   for (;;) {
+      const std::string line = read_line();
+      if (line.empty()) continue;
+
+      std::cout << "<- " << line << '\n';
+
+      boost::system::error_code ec;
+      const boost::json::value value = boost::json::parse(line, ec);
+      if (ec) {
+         std::cerr << "JSON parse error: " << ec.message() << '\n';
+         continue;
+      }
+
+      if (!value.is_object()) {
+         std::cerr << "Ignoring non-object JSON message\n";
+         continue;
+      }
+
+      const auto& obj = value.as_object();
+
+      const auto method_it = obj.find("method");
+      if (method_it != obj.end() && method_it->value().is_string()) {
+         handle_message(line);
+         continue;
+      }
+
+      const auto id_it = obj.find("id");
+      if (id_it == obj.end() || !id_it->value().is_int64()) {
+         std::cout << "Received unclassified submit response\n";
+         print_json_pretty(value);
+         continue;
+      }
+
+      if (id_it->value().as_int64() != submit_id) {
+         std::cout << "Received response for different request id\n";
+         print_json_pretty(value);
+         continue;
+      }
+
+      const auto error_it = obj.find("error");
+      if (error_it != obj.end() && !error_it->value().is_null()) {
+         std::cout << "share rejected by pool\n";
+         print_json_pretty(value);
+         return false;
+      }
+
+      const auto result_it = obj.find("result");
+      if (result_it != obj.end() && result_it->value().is_bool()) {
+         const bool accepted = result_it->value().as_bool();
+         std::cout << "share submit result: "
+                   << (accepted ? "accepted" : "rejected") << '\n';
+         return accepted;
+      }
+
+      std::cout << "unexpected submit response shape\n";
+      print_json_pretty(value);
+      return false;
+   }
 }
 
 void StratumClient::print_json_pretty(const boost::json::value& value) const {
