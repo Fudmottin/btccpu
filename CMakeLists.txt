@@ -183,13 +183,8 @@ function(cpu_miner_set_warnings target_name)
          -Wpedantic
          -Wconversion
          -Wsign-conversion
-#        -Wshadow
-#        -Wold-style-cast
-#        -Wnon-virtual-dtor
-#        -Woverloaded-virtual
+         -Wshadow
          -Wnull-dereference
-#        -Wdouble-promotion
-#        -Wimplicit-fallthrough
       )
 
       if(CPU_MINER_WARNINGS_AS_ERRORS)

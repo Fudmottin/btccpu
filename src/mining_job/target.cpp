@@ -2,7 +2,6 @@
 
 #include <cmath>
 #include <cstdint>
-#include <limits>
 #include <stdexcept>
 
 #include "mining_job/target.hpp"
@@ -36,40 +35,13 @@ uint256 share_target_from_difficulty(double difficulty) {
       throw std::invalid_argument("difficulty must be finite and > 0");
    }
 
-   const long double diff1 = static_cast<long double>(difficulty_1_target());
-   const long double scaled = diff1 / static_cast<long double>(difficulty);
-
-   if (!(scaled >= 0.0L)) {
-      throw std::invalid_argument("invalid scaled share target");
+   const auto as_u64 = static_cast<std::uint64_t>(difficulty);
+   if (static_cast<double>(as_u64) != difficulty) {
+      throw std::invalid_argument(
+         "difficulty must be an exact integer for this code path");
    }
 
-   // Truncate toward zero, which is conservative for acceptance.
-   const auto as_u64 = static_cast<std::uint64_t>(scaled);
-   uint256 approx{as_u64};
-
-   // This is exact only while the result fits in 64 bits, and approximate
-   // otherwise due to long double precision limits.
-   //
-   // For the current educational CKPool setup with small Stratum difficulty
-   // values, this is fine as a first step. A fully exact path should be added
-   // later using integer arithmetic.
-   if (scaled >
-       static_cast<long double>(std::numeric_limits<std::uint64_t>::max())) {
-      // Fall back to repeated halving-style approximation through uint256
-      // via long double decomposition.
-      long double x = scaled;
-      uint256 result{};
-      for (int bit = 255; bit >= 0; --bit) {
-         const long double place = std::ldexp(1.0L, bit);
-         if (x >= place) {
-            result += (uint256{1} << static_cast<unsigned>(bit));
-            x -= place;
-         }
-      }
-      return result;
-   }
-
-   return approx;
+   return share_target_from_difficulty(as_u64);
 }
 
 uint256 share_target_from_difficulty(std::uint64_t difficulty) {
