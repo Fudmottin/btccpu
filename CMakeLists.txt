@@ -83,11 +83,13 @@ add_library(cpu_miner_mining_job
    src/mining_job/target.cpp
    src/mining_job/header.cpp
    src/mining_job/work_state.cpp
+   src/mining_job/scan.cpp
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
    set_source_files_properties(
       src/mining_job/target.cpp
+      src/mining_job/scan.cpp
       PROPERTIES
       COMPILE_OPTIONS "-Wno-conversion;-Wno-sign-conversion;-Wno-old-style-cast;-Wno-pedantic"
    )
