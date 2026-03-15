@@ -4,7 +4,6 @@
 #define CPU_MINER_STRATUM_CLIENT_STRATUM_CLIENT_HPP
 
 #include <boost/asio.hpp>
-#include <boost/json.hpp>
 
 #include <cmath>
 #include <optional>
@@ -34,10 +33,9 @@ class StratumClient {
    [[nodiscard]] double difficulty() const noexcept;
 
  private:
-   void send_json(const boost::json::object& message);
+   void send_wire_message(const std::string& wire);
    std::string read_line();
    void handle_message(std::string_view line);
-   void print_json_pretty(const boost::json::value& value) const;
 
    std::string host_;
    std::string port_;
