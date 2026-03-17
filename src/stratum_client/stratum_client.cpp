@@ -195,15 +195,16 @@ SubmitShareResult StratumClient::submit_share(const ShareSubmission& share) {
 
    const int submit_id = next_id_++;
 
-   send_wire_message(to_wire_message(
-      SubmitShareRequest{
-         .worker_name = worker_name_,
-         .job_id = share.job_id,
-         .extranonce2_hex = share.extranonce2_hex,
-         .ntime_hex = share.ntime_hex,
-         .nonce_hex = share.nonce_hex,
-      },
-      submit_id));
+   const SubmitShareRequest request{
+      .worker_name = worker_name_,
+      .job_id = share.job_id,
+      .extranonce2_hex = share.extranonce2_hex,
+      .ntime_hex = share.ntime_hex,
+      .nonce_hex = share.nonce_hex,
+   };
+
+   const std::string wire = to_wire_message(request, submit_id);
+   send_wire_message(wire);
 
    for (;;) {
       const std::string line = read_line();
@@ -222,6 +223,7 @@ SubmitShareResult StratumClient::submit_share(const ShareSubmission& share) {
          SubmitShareResult result;
          result.accepted = submit->accepted;
          result.error_text = submit->error_text;
+         result.raw_request = wire;
          result.raw_response = line;
          return result;
       }

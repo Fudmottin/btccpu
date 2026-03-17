@@ -37,21 +37,6 @@ volatile std::sig_atomic_t g_sigint_requested = 0;
 
 void handle_sigint(int) { g_sigint_requested = 1; }
 
-std::uint64_t require_integral_difficulty(double difficulty) {
-   if (!(difficulty > 0.0) || !std::isfinite(difficulty)) {
-      throw std::invalid_argument("stratum difficulty must be finite and > 0");
-   }
-
-   const auto as_u64 = static_cast<std::uint64_t>(difficulty);
-   if (static_cast<double>(as_u64) != difficulty) {
-      throw std::runtime_error(
-         "stratum difficulty is not an exact integer; integer share-target "
-         "path requested");
-   }
-
-   return as_u64;
-}
-
 template<class Range>
 std::string bytes_to_hex_fixed_msb(const Range& bytes) {
    std::string hex;
@@ -136,7 +121,7 @@ struct PublishedWork {
    cpu_miner::u256::uint256 network_target{};
    cpu_miner::u256::uint256 share_target{};
    std::uint64_t generation{};
-   std::uint64_t share_difficulty{};
+   double share_difficulty{};
 };
 
 struct SharedWorkState {
@@ -286,16 +271,21 @@ struct ShareFoundEvent {
    std::uint64_t generation{};
    std::uint32_t nonce{};
    cpu_miner::sha256::DigestBytes hash{};
+   cpu_miner::u256::uint256 share_target{};
+   cpu_miner::u256::uint256 network_target{};
    bool block_candidate{};
 };
 
 struct ShareSubmitEvent {
    std::string job_id;
    std::string extranonce2_hex;
+   std::string ntime_hex;
+   std::string nonce_hex;
    std::uint64_t generation{};
    std::uint32_t nonce{};
    bool accepted{};
    std::string error_text;
+   std::string raw_request;
    std::string raw_response;
 };
 
@@ -385,7 +375,7 @@ void publish_latest_work(SharedWorkState& shared_work,
    const std::uint32_t nbits = cpu_miner::u32_from_hex_be(job.nbits);
    next.network_target = cpu_miner::expand_compact_target(nbits);
 
-   next.share_difficulty = require_integral_difficulty(client.difficulty());
+   next.share_difficulty = client.difficulty();
    next.share_target =
       cpu_miner::share_target_from_difficulty(next.share_difficulty);
 
@@ -505,7 +495,8 @@ int main(int argc, char* argv[]) {
                events.push(StartupEvent{
                   .work = published.work,
                   .difficulty = client.difficulty(),
-                  .share_difficulty = published.share_difficulty,
+                  .share_difficulty =
+                     static_cast<uint64_t>(published.share_difficulty),
                });
             }
 
@@ -545,10 +536,15 @@ int main(int argc, char* argv[]) {
                   events.push(ShareSubmitEvent{
                      .job_id = candidate.work.job.job_id,
                      .extranonce2_hex = candidate.work.coinbase.extranonce2_hex,
+                     .ntime_hex = candidate.work.job.ntime,
+                     .nonce_hex =
+                        cpu_miner::make_share_submission(candidate.work)
+                           .nonce_hex,
                      .generation = candidate.generation,
                      .nonce = candidate.nonce,
                      .accepted = submit_result.accepted,
                      .error_text = submit_result.error_text,
+                     .raw_request = submit_result.raw_request,
                      .raw_response = submit_result.raw_response,
                   });
                }
@@ -668,6 +664,8 @@ int main(int argc, char* argv[]) {
                            .generation = published.generation,
                            .nonce = nonce,
                            .hash = hash,
+                           .share_target = published.share_target,
+                           .network_target = published.network_target,
                            .block_candidate = is_block_candidate,
                         });
                      });
@@ -754,8 +752,8 @@ int main(int argc, char* argv[]) {
                      std::cout << "  nbits: 0x" << std::hex << std::setw(8)
                                << std::setfill('0') << nbits << std::dec
                                << std::setfill(' ') << '\n';
-                     std::cout << "  share difficulty (integer): "
-                               << e.share_difficulty << '\n';
+                     std::cout << "  share difficulty: " << e.share_difficulty
+                               << '\n';
                   } else if constexpr (std::is_same_v<T, WorkUpdateEvent>) {
                      std::cout << "work update:\n";
                      std::cout << "  generation: " << e.generation << '\n';
@@ -780,6 +778,10 @@ int main(int argc, char* argv[]) {
                         << " generation=" << e.generation
                         << " nonce=" << e.nonce
                         << " hash=" << digest_hex_msb(e.hash) << '\n';
+                     std::cout << "    local share target: "
+                               << e.share_target.to_hex_be_fixed() << '\n';
+                     std::cout << "    network target:     "
+                               << e.network_target.to_hex_be_fixed() << '\n';
                   } else if constexpr (std::is_same_v<T, ShareSubmitEvent>) {
                      std::cout << "  share submission: "
                                << (e.accepted ? "accepted" : "rejected")
@@ -788,9 +790,15 @@ int main(int argc, char* argv[]) {
                      std::cout << "    job_id: " << e.job_id << '\n';
                      std::cout << "    extranonce2: " << e.extranonce2_hex
                                << '\n';
+                     std::cout << "    ntime: " << e.ntime_hex << '\n';
                      std::cout << "    nonce: " << e.nonce << '\n';
+                     std::cout << "    nonce_hex: " << e.nonce_hex << '\n';
                      if (!e.error_text.empty()) {
                         std::cout << "    error: " << e.error_text << '\n';
+                     }
+                     if (!e.raw_request.empty()) {
+                        std::cout << "    raw request:  " << e.raw_request
+                                  << '\n';
                      }
                      if (!e.raw_response.empty()) {
                         std::cout << "    raw response: " << e.raw_response

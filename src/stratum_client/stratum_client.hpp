@@ -17,6 +17,7 @@ namespace cpu_miner {
 struct SubmitShareResult {
    bool accepted{};
    std::string error_text;
+   std::string raw_request;
    std::string raw_response;
 };
 

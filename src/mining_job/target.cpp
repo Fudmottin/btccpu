@@ -35,20 +35,37 @@ uint256 share_target_from_difficulty(double difficulty) {
       throw std::invalid_argument("difficulty must be finite and > 0");
    }
 
-   const auto as_u64 = static_cast<std::uint64_t>(difficulty);
-   if (static_cast<double>(as_u64) != difficulty) {
-      throw std::invalid_argument(
-         "difficulty must be an exact integer for this code path");
+   // Fixed-point rational approximation:
+   // target = floor(diff1 / difficulty)
+   //        = floor((diff1 << 32) / round(difficulty * 2^32))
+   static constexpr long double kScale =
+      4294967296.0L; // 2^32
+
+   const long double scaled_ld =
+      static_cast<long double>(difficulty) * kScale;
+
+   if (!(scaled_ld >= 1.0L) ||
+       scaled_ld >
+          static_cast<long double>(std::numeric_limits<std::uint64_t>::max())) {
+      throw std::invalid_argument("difficulty is out of supported range");
    }
 
-   return share_target_from_difficulty(as_u64);
+   const auto scaled =
+      static_cast<std::uint64_t>(std::llround(scaled_ld));
+
+   if (scaled == 0U) {
+      throw std::invalid_argument("difficulty scaling underflow");
+   }
+
+   return (difficulty_1_target() << 32U) / uint256{scaled};
 }
 
 uint256 share_target_from_difficulty(std::uint64_t difficulty) {
    if (difficulty == 0U) {
       throw std::invalid_argument("difficulty must be > 0");
    }
-   return difficulty_1_target() / uint256{difficulty};
+
+   return share_target_from_difficulty(static_cast<double>(difficulty));
 }
 
 uint256 hash_digest_to_uint256(const sha256::DigestBytes& digest_bytes) {
@@ -60,7 +77,8 @@ uint256 hash_digest_to_uint256(const sha256::DigestBytes& digest_bytes) {
 
 bool hash_meets_target(const sha256::DigestBytes& digest_bytes,
                        const uint256& target) {
-   return hash_digest_to_uint256(digest_bytes) <= target;
+   const auto hash_value = hash_digest_to_uint256(digest_bytes);
+   return hash_value <= target;
 }
 
 } // namespace cpu_miner
