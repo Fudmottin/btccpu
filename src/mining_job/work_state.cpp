@@ -16,13 +16,15 @@
 namespace cpu_miner {
 namespace {
 
-std::string hex_u32_be(std::uint32_t value) {
+std::string hex_u32_le(std::uint32_t value) {
    static constexpr char digits[] = "0123456789abcdef";
    std::string out(8, '0');
 
-   for (int i = 7; i >= 0; --i) {
-      out[static_cast<std::size_t>(i)] = digits[value & 0x0fU];
-      value >>= 4U;
+   for (int byte = 0; byte < 4; ++byte) {
+      const std::uint8_t b =
+         static_cast<std::uint8_t>((value >> (8U * byte)) & 0xffU);
+      out[byte * 2 + 0] = digits[(b >> 4U) & 0x0fU];
+      out[byte * 2 + 1] = digits[b & 0x0fU];
    }
 
    return out;
@@ -95,7 +97,7 @@ ShareSubmission make_share_submission(const WorkState& work) {
       .job_id = work.job.job_id,
       .extranonce2_hex = work.coinbase.extranonce2_hex,
       .ntime_hex = work.job.ntime,
-      .nonce_hex = hex_u32_be(work.nonce),
+      .nonce_hex = hex_u32_le(work.nonce),
    };
 }
 

@@ -11,6 +11,13 @@
 namespace cpu_miner {
 namespace {
 
+constexpr std::uint32_t bswap32(std::uint32_t v) noexcept {
+   return ((v & 0x000000ffU) << 24U) |
+          ((v & 0x0000ff00U) << 8U) |
+          ((v & 0x00ff0000U) >> 8U) |
+          ((v & 0xff000000U) >> 24U);
+}
+
 void write_le32(std::uint32_t v, std::uint8_t* out) noexcept {
    out[0] = static_cast<std::uint8_t>(v);
    out[1] = static_cast<std::uint8_t>(v >> 8);
@@ -106,7 +113,7 @@ HeaderTemplate make_header_template(std::uint32_t version,
 }
 
 void set_header_nonce(HeaderTemplate& header, std::uint32_t nonce) noexcept {
-   header.block1[3] = nonce;
+   header.block1[3] = bswap32(nonce);
 }
 
 sha256::DigestWords hash_header_template(const HeaderTemplate& header) {
