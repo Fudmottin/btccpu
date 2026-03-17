@@ -20,11 +20,12 @@ std::string hex_u32_le(std::uint32_t value) {
    static constexpr char digits[] = "0123456789abcdef";
    std::string out(8, '0');
 
-   for (int byte = 0; byte < 4; ++byte) {
-      const std::uint8_t b =
-         static_cast<std::uint8_t>((value >> (8U * byte)) & 0xffU);
-      out[byte * 2 + 0] = digits[(b >> 4U) & 0x0fU];
-      out[byte * 2 + 1] = digits[b & 0x0fU];
+   for (std::size_t byte = 0; byte < 4U; ++byte) {
+      const auto shift = static_cast<unsigned>(8U * byte);
+      const auto b =
+         static_cast<std::uint8_t>((value >> shift) & 0xffU);
+      out[byte * 2U + 0U] = digits[(b >> 4U) & 0x0fU];
+      out[byte * 2U + 1U] = digits[b & 0x0fU];
    }
 
    return out;
@@ -43,8 +44,11 @@ std::array<std::uint8_t, 32> hash32_from_hex(std::string_view hex) {
    return out;
 }
 
-void reverse_bytes(std::span<std::uint8_t> bytes) {
-   std::reverse(bytes.begin(), bytes.end());
+void swap_bytes_in_each_u32(std::span<std::uint8_t, 32> bytes) {
+   for (std::size_t i = 0; i < bytes.size(); i += 4U) {
+      std::swap(bytes[i + 0], bytes[i + 3]);
+      std::swap(bytes[i + 1], bytes[i + 2]);
+   }
 }
 
 std::uint64_t max_extranonce2_value(std::size_t size_bytes) {
@@ -78,8 +82,8 @@ void rebuild_derived_state(WorkState& work) {
    work.prevhash = hash32_from_hex(work.job.prevhash);
    work.merkle_root = hash32_from_hex(work.merkle_root_hex);
 
-   reverse_bytes(work.prevhash);
-   reverse_bytes(work.merkle_root);
+   swap_bytes_in_each_u32(std::span<std::uint8_t, 32>(work.prevhash));
+   swap_bytes_in_each_u32(std::span<std::uint8_t, 32>(work.merkle_root));
 
    const std::uint32_t version = u32_from_hex_be(work.job.version);
    const std::uint32_t ntime = u32_from_hex_be(work.job.ntime);
