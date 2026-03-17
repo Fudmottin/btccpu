@@ -1,4 +1,5 @@
 // src/stratum_client/messages.cpp
+
 #include <boost/json.hpp>
 
 #include <limits>
@@ -164,14 +165,22 @@ parse_submit_response(const boost::json::object& obj) {
    const auto id = parse_message_id(obj);
    if (!id) return std::nullopt;
 
-   const auto result_it = obj.find("result");
-   if (result_it == obj.end() || !result_it->value().is_bool()) {
-      return std::nullopt;
-   }
-
    SubmitResponse msg{};
    msg.id = *id;
-   msg.accepted = result_it->value().as_bool();
+
+   const auto result_it = obj.find("result");
+   if (result_it != obj.end()) {
+      const auto& result = result_it->value();
+      if (result.is_bool()) {
+         msg.accepted = result.as_bool();
+      } else if (result.is_null()) {
+         msg.accepted = false;
+      } else {
+         return std::nullopt;
+      }
+   } else {
+      msg.accepted = false;
+   }
 
    const auto error_it = obj.find("error");
    if (error_it != obj.end() && !error_it->value().is_null()) {
@@ -317,13 +326,12 @@ std::string debug_summary(const AuthorizeResponse& msg) {
 std::string debug_summary(const SubmitResponse& msg) {
    std::ostringstream out;
    out << "submit:\n";
-   out << "  id:       " << msg.id << '\n';
-   out << "  accepted: " << (msg.accepted ? "true" : "false") << '\n';
-   out << "  has_error:" << (msg.has_error ? " true" : " false") << '\n';
+   out << "  id:        " << msg.id << '\n';
+   out << "  accepted:  " << (msg.accepted ? "true" : "false") << '\n';
+   out << "  has_error: " << (msg.has_error ? "true" : "false") << '\n';
    if (msg.has_error) {
-      out << "\n  error:    " << msg.error_text;
+      out << "  error:     " << msg.error_text << '\n';
    }
-   out << '\n';
    return out.str();
 }
 

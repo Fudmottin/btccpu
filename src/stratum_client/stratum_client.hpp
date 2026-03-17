@@ -5,7 +5,6 @@
 
 #include <boost/asio.hpp>
 
-#include <cmath>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -15,6 +14,17 @@
 
 namespace cpu_miner {
 
+struct SubmitShareResult {
+   bool accepted{};
+   std::string error_text;
+   std::string raw_response;
+};
+
+struct PollResult {
+   bool got_message{};
+   bool work_invalidated{};
+};
+
 class StratumClient {
  public:
    StratumClient(std::string host, std::string port);
@@ -23,8 +33,10 @@ class StratumClient {
    void subscribe();
    void suggest_difficulty(double difficulty);
    void authorize(const std::string& user, const std::string& password);
-   void run_until_notify();
-   bool submit_share(const ShareSubmission& share);
+
+   void run_until_ready();
+   [[nodiscard]] PollResult poll();
+   [[nodiscard]] SubmitShareResult submit_share(const ShareSubmission& share);
 
    [[nodiscard]] const std::string& worker_name() const noexcept;
    [[nodiscard]] const std::optional<SubscriptionContext>&
@@ -36,6 +48,7 @@ class StratumClient {
    void send_wire_message(const std::string& wire);
    std::string read_line();
    void handle_message(std::string_view line);
+   [[nodiscard]] bool ready() const noexcept;
 
    std::string host_;
    std::string port_;
@@ -46,7 +59,6 @@ class StratumClient {
    boost::asio::streambuf buffer_;
 
    int next_id_{1};
-   bool saw_notify_{false};
 
    std::optional<SubscriptionContext> subscription_;
    std::optional<MiningJob> current_job_;

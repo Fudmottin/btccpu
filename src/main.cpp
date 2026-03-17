@@ -1,14 +1,25 @@
 // src/main.cpp
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
+#include <csignal>
 #include <cstdint>
 #include <exception>
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <mutex>
+#include <optional>
+#include <queue>
 #include <stdexcept>
+#include <stop_token>
 #include <string>
+#include <thread>
+#include <utility>
+#include <variant>
 
 #include "mining_job/coinbase.hpp"
 #include "mining_job/header.hpp"
@@ -18,8 +29,13 @@
 #include "sha256/sha256.hpp"
 #include "stratum_client/stratum_client.hpp"
 #include "util/hex.hpp"
+#include "util/uint256.hpp"
 
 namespace {
+
+volatile std::sig_atomic_t g_sigint_requested = 0;
+
+void handle_sigint(int) { g_sigint_requested = 1; }
 
 std::uint64_t require_integral_difficulty(double difficulty) {
    if (!(difficulty > 0.0) || !std::isfinite(difficulty)) {
@@ -34,6 +50,26 @@ std::uint64_t require_integral_difficulty(double difficulty) {
    }
 
    return as_u64;
+}
+
+template<class Range>
+std::string bytes_to_hex_fixed_msb(const Range& bytes) {
+   std::string hex;
+   hex.reserve(bytes.size() * 2U);
+
+   static constexpr char digits[] = "0123456789abcdef";
+
+   for (auto it = bytes.rbegin(); it != bytes.rend(); ++it) {
+      const std::uint8_t b = *it;
+      hex.push_back(digits[(b >> 4U) & 0x0fU]);
+      hex.push_back(digits[b & 0x0fU]);
+   }
+
+   return hex;
+}
+
+std::string digest_hex_msb(const cpu_miner::sha256::DigestBytes& digest) {
+   return bytes_to_hex_fixed_msb(digest);
 }
 
 void print_startup_sanity(const cpu_miner::WorkState& work) {
@@ -56,9 +92,8 @@ void print_startup_sanity(const cpu_miner::WorkState& work) {
                       : 0)
              << '\n';
 
-   const std::string coinbase_hash_hex =
-      cpu_miner::bytes_to_hex(work.coinbase.coinbase_hash);
-   std::cout << "  coinbase_hash: " << coinbase_hash_hex << '\n';
+   std::cout << "  coinbase_hash: "
+             << digest_hex_msb(work.coinbase.coinbase_hash) << '\n';
 
    const auto decoded_coinbase =
       cpu_miner::decode_coinbase(work.coinbase.coinbase_bytes);
@@ -79,11 +114,10 @@ void print_startup_sanity(const cpu_miner::WorkState& work) {
    const auto header_hash_words = cpu_miner::sha256::dbl_sha256_words(header);
    const auto header_hash_bytes =
       cpu_miner::sha256::digest_words_to_bytes_be(header_hash_words);
-   const std::string header_hash_hex =
-      cpu_miner::bytes_to_hex(header_hash_bytes);
 
    std::cout << "  header_hex: " << header_hex << '\n';
-   std::cout << "  header_hash_nonce0: " << header_hash_hex << '\n';
+   std::cout << "  header_hash_nonce0: " << digest_hex_msb(header_hash_bytes)
+             << '\n';
 
    auto template_copy = work.header_template;
    cpu_miner::set_header_nonce(template_copy, nonce0);
@@ -92,123 +126,744 @@ void print_startup_sanity(const cpu_miner::WorkState& work) {
       cpu_miner::hash_header_template(template_copy);
    const auto template_hash_bytes =
       cpu_miner::sha256::digest_words_to_bytes_be(template_hash_words);
-   const std::string template_hash_hex =
-      cpu_miner::bytes_to_hex(template_hash_bytes);
 
-   std::cout << "  template_hash_nonce0: " << template_hash_hex << '\n';
+   std::cout << "  template_hash_nonce0: "
+             << digest_hex_msb(template_hash_bytes) << '\n';
 }
 
-void print_chunk_summary(const cpu_miner::ScanResult& result) {
-   std::cout << "  scanned hashes: " << result.hashes_done << '\n';
-   std::cout << "  shares found: " << result.shares_found << '\n';
-   std::cout << "  blocks found: " << result.blocks_found << '\n';
-   std::cout << "  shares accepted: " << result.shares_accepted << '\n';
-   std::cout << "  shares rejected: " << result.shares_rejected << '\n';
+struct PublishedWork {
+   cpu_miner::WorkState work;
+   cpu_miner::u256::uint256 network_target{};
+   cpu_miner::u256::uint256 share_target{};
+   std::uint64_t generation{};
+   std::uint64_t share_difficulty{};
+};
+
+struct SharedWorkState {
+   std::mutex mutex;
+   std::condition_variable cv;
+   std::optional<PublishedWork> published;
+};
+
+class ShareQueue {
+ public:
+   void push(cpu_miner::ShareCandidate candidate) {
+      {
+         std::lock_guard<std::mutex> lock(mutex_);
+         queue_.push(std::move(candidate));
+      }
+      cv_.notify_one();
+   }
+
+   [[nodiscard]] bool try_pop(cpu_miner::ShareCandidate& out) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (queue_.empty()) return false;
+
+      out = std::move(queue_.front());
+      queue_.pop();
+      return true;
+   }
+
+   [[nodiscard]] bool wait_pop_for(cpu_miner::ShareCandidate& out,
+                                   std::stop_token stop_token,
+                                   std::chrono::milliseconds timeout) {
+      std::unique_lock<std::mutex> lock(mutex_);
+
+      const auto pred = [this, &stop_token]() {
+         return !queue_.empty() || stop_token.stop_requested();
+      };
+
+      if (!cv_.wait_for(lock, timeout, pred)) {
+         return false;
+      }
+
+      if (stop_token.stop_requested() || queue_.empty()) {
+         return false;
+      }
+
+      out = std::move(queue_.front());
+      queue_.pop();
+      return true;
+   }
+
+ private:
+   std::mutex mutex_;
+   std::condition_variable cv_;
+   std::queue<cpu_miner::ShareCandidate> queue_;
+};
+
+struct Counters {
+   std::atomic<std::uint64_t> hashes_done{0};
+   std::atomic<std::uint64_t> shares_found{0};
+   std::atomic<std::uint64_t> blocks_found{0};
+   std::atomic<std::uint64_t> shares_accepted{0};
+   std::atomic<std::uint64_t> shares_rejected{0};
+   std::atomic<std::uint64_t> current_scan_hashes_done{0};
+};
+
+struct TotalsSnapshot {
+   std::uint64_t hashes_done{};
+   std::uint64_t shares_found{};
+   std::uint64_t blocks_found{};
+   std::uint64_t shares_accepted{};
+   std::uint64_t shares_rejected{};
+   std::uint64_t current_scan_hashes_done{};
+};
+
+TotalsSnapshot snapshot_counters(const Counters& counters) {
+   return TotalsSnapshot{
+      .hashes_done = counters.hashes_done.load(std::memory_order_relaxed),
+      .shares_found = counters.shares_found.load(std::memory_order_relaxed),
+      .blocks_found = counters.blocks_found.load(std::memory_order_relaxed),
+      .shares_accepted =
+         counters.shares_accepted.load(std::memory_order_relaxed),
+      .shares_rejected =
+         counters.shares_rejected.load(std::memory_order_relaxed),
+      .current_scan_hashes_done =
+         counters.current_scan_hashes_done.load(std::memory_order_relaxed),
+   };
+}
+
+void print_running_totals(const TotalsSnapshot& totals) {
+   std::cout << "running totals:\n";
+   std::cout << "  hashes: " << totals.hashes_done << '\n';
+   std::cout << "  shares found: " << totals.shares_found << '\n';
+   std::cout << "  blocks found: " << totals.blocks_found << '\n';
+   std::cout << "  shares accepted: " << totals.shares_accepted << '\n';
+   std::cout << "  shares rejected: " << totals.shares_rejected << '\n';
+}
+
+void clear_status_line(bool& status_line_active) {
+   if (!status_line_active) {
+      return;
+   }
+
+   std::cout << '\r'
+             << "                                                              "
+                "                  "
+             << '\r' << std::flush;
+   status_line_active = false;
+}
+
+void print_status_line(const TotalsSnapshot& totals, bool& status_line_active) {
+   const std::uint64_t live_hashes =
+      totals.hashes_done + totals.current_scan_hashes_done;
+
+   std::cout << '\r' << "hashes=" << live_hashes
+             << " shares=" << totals.shares_found
+             << " blocks=" << totals.blocks_found
+             << " accepted=" << totals.shares_accepted
+             << " rejected=" << totals.shares_rejected << std::flush;
+
+   status_line_active = true;
+}
+
+struct StartupEvent {
+   cpu_miner::WorkState work;
+   double difficulty{};
+   std::uint64_t share_difficulty{};
+};
+
+struct WorkUpdateEvent {
+   std::string job_id;
+   std::string ntime_hex;
+   bool clean_jobs{};
+   double difficulty{};
+   std::uint64_t generation{};
+};
+
+struct ChunkStartedEvent {
+   std::string job_id;
+   std::string extranonce2_hex;
+   std::uint64_t generation{};
+   std::uint64_t nonce_begin{};
+   std::uint64_t nonce_end{};
+};
+
+struct ShareFoundEvent {
+   std::string job_id;
+   std::string extranonce2_hex;
+   std::uint64_t generation{};
+   std::uint32_t nonce{};
+   cpu_miner::sha256::DigestBytes hash{};
+   bool block_candidate{};
+};
+
+struct ShareSubmitEvent {
+   std::string job_id;
+   std::string extranonce2_hex;
+   std::uint64_t generation{};
+   std::uint32_t nonce{};
+   bool accepted{};
+   std::string error_text;
+   std::string raw_response;
+};
+
+struct StaleShareDiscardedEvent {
+   std::string job_id;
+   std::uint32_t nonce{};
+   std::uint64_t candidate_generation{};
+   std::uint64_t current_generation{};
+};
+
+struct ScanFinishedEvent {
+   std::string job_id;
+   std::string extranonce2_hex;
+   std::uint64_t generation{};
+   cpu_miner::ScanResult result;
+};
+
+struct ShutdownEvent {
+   std::string reason;
+};
+
+struct ErrorEvent {
+   std::string source;
+   std::string message;
+};
+
+struct ThreadExitedEvent {
+   std::string thread_name;
+};
+
+using AppEvent = std::variant<StartupEvent, WorkUpdateEvent, ChunkStartedEvent,
+                              ShareFoundEvent, ShareSubmitEvent,
+                              StaleShareDiscardedEvent, ScanFinishedEvent,
+                              ShutdownEvent, ErrorEvent, ThreadExitedEvent>;
+
+class EventQueue {
+ public:
+   void push(AppEvent event) {
+      {
+         std::lock_guard<std::mutex> lock(mutex_);
+         queue_.push(std::move(event));
+      }
+      cv_.notify_one();
+   }
+
+   [[nodiscard]] bool try_pop(AppEvent& out) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (queue_.empty()) return false;
+
+      out = std::move(queue_.front());
+      queue_.pop();
+      return true;
+   }
+
+   [[nodiscard]] bool wait_pop_for(AppEvent& out,
+                                   std::chrono::milliseconds timeout) {
+      std::unique_lock<std::mutex> lock(mutex_);
+      if (!cv_.wait_for(lock, timeout, [this]() { return !queue_.empty(); })) {
+         return false;
+      }
+
+      out = std::move(queue_.front());
+      queue_.pop();
+      return true;
+   }
+
+ private:
+   std::mutex mutex_;
+   std::condition_variable cv_;
+   std::queue<AppEvent> queue_;
+};
+
+void publish_latest_work(SharedWorkState& shared_work,
+                         std::atomic<std::uint64_t>& work_generation,
+                         const cpu_miner::StratumClient& client,
+                         EventQueue& events) {
+   if (!(client.subscription() && client.current_job())) {
+      return;
+   }
+
+   const auto& sub = *client.subscription();
+   const auto& job = *client.current_job();
+
+   PublishedWork next;
+   next.work = cpu_miner::make_work_state(job, sub, 0U);
+
+   const std::uint32_t nbits = cpu_miner::u32_from_hex_be(job.nbits);
+   next.network_target = cpu_miner::expand_compact_target(nbits);
+
+   next.share_difficulty = require_integral_difficulty(client.difficulty());
+   next.share_target =
+      cpu_miner::share_target_from_difficulty(next.share_difficulty);
+
+   next.generation =
+      work_generation.fetch_add(1U, std::memory_order_acq_rel) + 1U;
+
+   {
+      std::lock_guard<std::mutex> lock(shared_work.mutex);
+      shared_work.published = next;
+   }
+
+   shared_work.cv.notify_all();
+
+   events.push(WorkUpdateEvent{
+      .job_id = job.job_id,
+      .ntime_hex = job.ntime,
+      .clean_jobs = job.clean_jobs,
+      .difficulty = client.difficulty(),
+      .generation = next.generation,
+   });
+}
+
+void record_thread_exception(std::mutex& error_mutex,
+                             std::exception_ptr& first_error,
+                             EventQueue& events, std::string source) {
+   try {
+      throw;
+   } catch (const std::exception& ex) {
+      {
+         std::lock_guard<std::mutex> lock(error_mutex);
+         if (!first_error) {
+            first_error = std::current_exception();
+         }
+      }
+      events.push(
+         ErrorEvent{.source = std::move(source), .message = ex.what()});
+   } catch (...) {
+      {
+         std::lock_guard<std::mutex> lock(error_mutex);
+         if (!first_error) {
+            first_error = std::current_exception();
+         }
+      }
+      events.push(ErrorEvent{.source = std::move(source),
+                             .message = "unknown exception"});
+   }
+}
+
+void print_scan_finished(const ScanFinishedEvent& event) {
+   std::cout << "scan result:\n";
+   std::cout << "  job_id: " << event.job_id << '\n';
+   std::cout << "  extranonce2: " << event.extranonce2_hex << '\n';
+   std::cout << "  generation: " << event.generation << '\n';
+   std::cout << "  scanned hashes: " << event.result.hashes_done << '\n';
+   std::cout << "  shares found: " << event.result.shares_found << '\n';
+   std::cout << "  blocks found: " << event.result.blocks_found << '\n';
    std::cout << "  elapsed seconds: " << std::fixed << std::setprecision(3)
-             << result.elapsed_seconds << '\n';
+             << event.result.elapsed_seconds << '\n';
    std::cout << "  average rate: " << std::setprecision(0)
-             << result.hash_rate_hps << " H/s\n";
+             << event.result.hash_rate_hps << " H/s\n";
+   std::cout << "  stop reason: ";
+   switch (event.result.stop_reason) {
+   case cpu_miner::ScanStopReason::exhausted:
+      std::cout << "exhausted\n";
+      break;
+   case cpu_miner::ScanStopReason::stale:
+      std::cout << "stale\n";
+      break;
+   case cpu_miner::ScanStopReason::stop_requested:
+      std::cout << "stop_requested\n";
+      break;
+   }
 }
 
 } // namespace
 
 int main(int argc, char* argv[]) {
    try {
+      std::signal(SIGINT, handle_sigint);
+
       const std::string host = (argc > 1) ? argv[1] : "192.168.0.104";
       const std::string port = (argc > 2) ? argv[2] : "3333";
       const std::string user =
          (argc > 3) ? argv[3] : "bc1qyourwalletaddresshere.cpu-miner";
       const std::string password = (argc > 4) ? argv[4] : "x";
 
-      cpu_miner::StratumClient client(host, port);
-      client.connect();
-      client.subscribe();
-      client.suggest_difficulty(1.0);
-      client.authorize(user, password);
-      client.run_until_notify();
+      SharedWorkState shared_work;
+      ShareQueue share_queue;
+      EventQueue events;
+      Counters counters;
+      std::atomic<std::uint64_t> work_generation{0};
 
-      if (!(client.subscription() && client.current_job())) {
-         std::cout << "mining skipped: missing subscription or job\n";
-         return 0;
-      }
+      std::mutex error_mutex;
+      std::exception_ptr first_error;
 
-      std::cout << "Difficulty: " << client.difficulty() << "\n";
+      std::atomic<bool> startup_announced{false};
 
-      const auto& sub = *client.subscription();
-      const auto& job = *client.current_job();
-      auto work = cpu_miner::make_work_state(job, sub, 0U);
+      std::jthread control_thread([&](std::stop_token stop_token) {
+         try {
+            cpu_miner::StratumClient client(host, port);
 
-      print_startup_sanity(work);
+            client.connect();
+            client.subscribe();
+            client.suggest_difficulty(1.0);
+            client.authorize(user, password);
+            client.run_until_ready();
 
-      const std::uint32_t nbits = cpu_miner::u32_from_hex_be(job.nbits);
-      const auto network_target = cpu_miner::expand_compact_target(nbits);
-      const auto share_difficulty =
-         require_integral_difficulty(client.difficulty());
-      const auto share_target =
-         cpu_miner::share_target_from_difficulty(share_difficulty);
+            if (!(client.subscription() && client.current_job())) {
+               throw std::runtime_error(
+                  "missing subscription or current job after startup");
+            }
 
-      std::cout << "mining setup:\n";
-      std::cout << "  nbits: 0x" << std::hex << std::setw(8)
-                << std::setfill('0') << nbits << std::dec << std::setfill(' ')
-                << '\n';
-      std::cout << "  share difficulty (integer): " << share_difficulty << '\n';
+            publish_latest_work(shared_work, work_generation, client, events);
 
-      constexpr std::uint64_t kNonceChunkSize =
-      static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1ULL;
-      constexpr std::uint64_t kProgressInterval = 1'000'000ULL;
-      constexpr std::uint64_t kMaxNonce =
-      static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max());
+            if (!startup_announced.exchange(true, std::memory_order_acq_rel)) {
+               const auto& published = *shared_work.published;
+               events.push(StartupEvent{
+                  .work = published.work,
+                  .difficulty = client.difficulty(),
+                  .share_difficulty = published.share_difficulty,
+               });
+            }
 
-      std::uint64_t total_hashes_done = 0ULL;
-      std::uint64_t total_shares_found = 0ULL;
-      std::uint64_t total_blocks_found = 0ULL;
-      std::uint64_t total_shares_accepted = 0ULL;
-      std::uint64_t total_shares_rejected = 0ULL;
+            while (!stop_token.stop_requested()) {
+               bool did_work = false;
 
-      cpu_miner::reset_nonce(work);
+               cpu_miner::ShareCandidate candidate;
+               while (share_queue.try_pop(candidate)) {
+                  did_work = true;
 
-      while (true) {
-         const std::uint64_t nonce_begin = work.nonce;
-         const std::uint64_t remaining = (kMaxNonce - nonce_begin) + 1ULL;
-         const std::uint64_t this_chunk_hashes =
-            std::min(kNonceChunkSize, remaining);
-         const std::uint64_t nonce_end = nonce_begin + this_chunk_hashes - 1ULL;
+                  const std::uint64_t current_generation =
+                     work_generation.load(std::memory_order_acquire);
 
-         std::cout << "mining chunk:\n";
-         std::cout << "  job_id: " << work.job.job_id << '\n';
-         std::cout << "  extranonce2: " << work.coinbase.extranonce2_hex
-                   << '\n';
-         std::cout << "  nonce range: [" << nonce_begin << ", " << nonce_end
-                   << "]\n";
+                  if (candidate.generation != current_generation) {
+                     events.push(StaleShareDiscardedEvent{
+                        .job_id = candidate.work.job.job_id,
+                        .nonce = candidate.nonce,
+                        .candidate_generation = candidate.generation,
+                        .current_generation = current_generation,
+                     });
+                     continue;
+                  }
 
-         const auto result =
-            cpu_miner::scan_nonce_range(client, work, network_target,
-                                        share_target, nonce_begin, nonce_end,
-                                        kProgressInterval);
+                  const auto submission =
+                     cpu_miner::make_share_submission(candidate.work);
 
-         total_hashes_done += result.hashes_done;
-         total_shares_found += result.shares_found;
-         total_blocks_found += result.blocks_found;
-         total_shares_accepted += result.shares_accepted;
-         total_shares_rejected += result.shares_rejected;
+                  const auto submit_result = client.submit_share(submission);
 
-         print_chunk_summary(result);
+                  if (submit_result.accepted) {
+                     counters.shares_accepted.fetch_add(
+                        1U, std::memory_order_relaxed);
+                  } else {
+                     counters.shares_rejected.fetch_add(
+                        1U, std::memory_order_relaxed);
+                  }
 
-         std::cout << "running totals:\n";
-         std::cout << "  hashes: " << total_hashes_done << '\n';
-         std::cout << "  shares found: " << total_shares_found << '\n';
-         std::cout << "  blocks found: " << total_blocks_found << '\n';
-         std::cout << "  shares accepted: " << total_shares_accepted << '\n';
-         std::cout << "  shares rejected: " << total_shares_rejected << '\n';
+                  events.push(ShareSubmitEvent{
+                     .job_id = candidate.work.job.job_id,
+                     .extranonce2_hex = candidate.work.coinbase.extranonce2_hex,
+                     .generation = candidate.generation,
+                     .nonce = candidate.nonce,
+                     .accepted = submit_result.accepted,
+                     .error_text = submit_result.error_text,
+                     .raw_response = submit_result.raw_response,
+                  });
+               }
 
-         if (nonce_end == kMaxNonce) {
-            std::cout << "nonce space exhausted; advancing extranonce2\n";
-            cpu_miner::advance_extranonce2(work);
-            continue;
+               const auto poll = client.poll();
+               if (poll.work_invalidated) {
+                  publish_latest_work(shared_work, work_generation, client,
+                                      events);
+               }
+
+               if (poll.got_message) {
+                  did_work = true;
+               }
+
+               if (did_work) {
+                  continue;
+               }
+
+               (void)share_queue.wait_pop_for(candidate, stop_token,
+                                              std::chrono::milliseconds(20));
+               if (!stop_token.stop_requested()) {
+                  if (!candidate.work.empty()) {
+                     share_queue.push(std::move(candidate));
+                  }
+               }
+            }
+         } catch (...) {
+            record_thread_exception(error_mutex, first_error, events,
+                                    "control");
          }
 
-         work.nonce = static_cast<std::uint32_t>(nonce_end + 1ULL);
+         events.push(ThreadExitedEvent{.thread_name = "control"});
+      });
+
+      std::jthread worker_thread([&](std::stop_token stop_token) {
+         try {
+            constexpr std::uint64_t kNonceChunkSize =
+               static_cast<std::uint64_t>(
+                  std::numeric_limits<std::uint32_t>::max()) +
+               1ULL;
+            constexpr std::uint64_t kProgressInterval = 1'000'000ULL;
+            constexpr std::uint64_t kMaxNonce = static_cast<std::uint64_t>(
+               std::numeric_limits<std::uint32_t>::max());
+
+            for (;;) {
+               PublishedWork published;
+
+               for (;;) {
+                  if (stop_token.stop_requested()) {
+                     events.push(ThreadExitedEvent{.thread_name = "worker"});
+                     return;
+                  }
+
+                  {
+                     std::unique_lock<std::mutex> lock(shared_work.mutex);
+                     if (shared_work.published.has_value()) {
+                        published = *shared_work.published;
+                        break;
+                     }
+                     shared_work.cv.wait_for(lock,
+                                             std::chrono::milliseconds(50));
+                  }
+               }
+
+               auto work = published.work;
+
+               while (!stop_token.stop_requested()) {
+                  const std::uint64_t nonce_begin = work.nonce;
+                  const std::uint64_t remaining =
+                     (kMaxNonce - nonce_begin) + 1ULL;
+                  const std::uint64_t this_chunk_hashes =
+                     std::min(kNonceChunkSize, remaining);
+                  const std::uint64_t nonce_end =
+                     nonce_begin + this_chunk_hashes - 1ULL;
+
+                  events.push(ChunkStartedEvent{
+                     .job_id = work.job.job_id,
+                     .extranonce2_hex = work.coinbase.extranonce2_hex,
+                     .generation = published.generation,
+                     .nonce_begin = nonce_begin,
+                     .nonce_end = nonce_end,
+                  });
+
+                  cpu_miner::ScanControl control{
+                     .stop_token = stop_token,
+                     .work_generation = &work_generation,
+                     .expected_generation = published.generation,
+                     .check_interval = 16'384U,
+                     .progress_hashes_done = &counters.current_scan_hashes_done,
+                  };
+
+                  const auto result = cpu_miner::scan_nonce_range(
+                     work, published.network_target, published.share_target,
+                     nonce_begin, nonce_end, kProgressInterval, control,
+                     [&](std::uint32_t nonce,
+                         const cpu_miner::sha256::DigestBytes& hash,
+                         bool is_block_candidate) {
+                        counters.shares_found.fetch_add(
+                           1U, std::memory_order_relaxed);
+                        if (is_block_candidate) {
+                           counters.blocks_found.fetch_add(
+                              1U, std::memory_order_relaxed);
+                        }
+
+                        cpu_miner::ShareCandidate candidate;
+                        candidate.work = cpu_miner::with_nonce(work, nonce);
+                        candidate.nonce = nonce;
+                        candidate.hash = hash;
+                        candidate.is_block_candidate = is_block_candidate;
+                        candidate.generation = published.generation;
+
+                        share_queue.push(candidate);
+
+                        events.push(ShareFoundEvent{
+                           .job_id = work.job.job_id,
+                           .extranonce2_hex = work.coinbase.extranonce2_hex,
+                           .generation = published.generation,
+                           .nonce = nonce,
+                           .hash = hash,
+                           .block_candidate = is_block_candidate,
+                        });
+                     });
+
+                  counters.hashes_done.fetch_add(result.hashes_done,
+                                                 std::memory_order_relaxed);
+                  counters.current_scan_hashes_done.store(
+                     0U, std::memory_order_relaxed);
+
+                  events.push(ScanFinishedEvent{
+                     .job_id = work.job.job_id,
+                     .extranonce2_hex = work.coinbase.extranonce2_hex,
+                     .generation = published.generation,
+                     .result = result,
+                  });
+
+                  if (result.stop_reason == cpu_miner::ScanStopReason::stale) {
+                     break;
+                  }
+
+                  if (result.stop_reason ==
+                      cpu_miner::ScanStopReason::stop_requested) {
+                     events.push(ThreadExitedEvent{.thread_name = "worker"});
+                     return;
+                  }
+
+                  if (nonce_end == kMaxNonce) {
+                     cpu_miner::advance_extranonce2(work);
+                     continue;
+                  }
+
+                  work.nonce = static_cast<std::uint32_t>(nonce_end + 1ULL);
+               }
+            }
+         } catch (...) {
+            record_thread_exception(error_mutex, first_error, events, "worker");
+         }
+
+         events.push(ThreadExitedEvent{.thread_name = "worker"});
+      });
+
+      bool stop_requested = false;
+      bool control_exited = false;
+      bool worker_exited = false;
+      auto last_status_print = std::chrono::steady_clock::now();
+      bool status_line_active = false;
+
+      while (!(control_exited && worker_exited)) {
+         if (g_sigint_requested != 0 && !stop_requested) {
+            stop_requested = true;
+            events.push(ShutdownEvent{
+               .reason = "SIGINT received; requesting graceful shutdown"});
+            control_thread.request_stop();
+            worker_thread.request_stop();
+         }
+
+         {
+            std::lock_guard<std::mutex> lock(error_mutex);
+            if (first_error && !stop_requested) {
+               stop_requested = true;
+               events.push(ShutdownEvent{
+                  .reason = "fatal worker/control error; requesting shutdown"});
+               control_thread.request_stop();
+               worker_thread.request_stop();
+            }
+         }
+
+         AppEvent event;
+         if (events.wait_pop_for(event, std::chrono::milliseconds(100))) {
+            std::visit(
+               [&](const auto& e) {
+                  using T = std::decay_t<decltype(e)>;
+
+                  clear_status_line(status_line_active);
+
+                  if constexpr (std::is_same_v<T, StartupEvent>) {
+                     std::cout << "Difficulty: " << e.difficulty << "\n";
+                     print_startup_sanity(e.work);
+
+                     const std::uint32_t nbits =
+                        cpu_miner::u32_from_hex_be(e.work.job.nbits);
+
+                     std::cout << "mining setup:\n";
+                     std::cout << "  nbits: 0x" << std::hex << std::setw(8)
+                               << std::setfill('0') << nbits << std::dec
+                               << std::setfill(' ') << '\n';
+                     std::cout << "  share difficulty (integer): "
+                               << e.share_difficulty << '\n';
+                  } else if constexpr (std::is_same_v<T, WorkUpdateEvent>) {
+                     std::cout << "work update:\n";
+                     std::cout << "  generation: " << e.generation << '\n';
+                     std::cout << "  job_id: " << e.job_id << '\n';
+                     std::cout << "  ntime: " << e.ntime_hex << '\n';
+                     std::cout
+                        << "  clean_jobs: " << (e.clean_jobs ? "true" : "false")
+                        << '\n';
+                     std::cout << "  difficulty: " << e.difficulty << '\n';
+                  } else if constexpr (std::is_same_v<T, ChunkStartedEvent>) {
+                     std::cout << "mining chunk:\n";
+                     std::cout << "  generation: " << e.generation << '\n';
+                     std::cout << "  job_id: " << e.job_id << '\n';
+                     std::cout << "  extranonce2: " << e.extranonce2_hex
+                               << '\n';
+                     std::cout << "  nonce range: [" << e.nonce_begin << ", "
+                               << e.nonce_end << "]\n";
+                  } else if constexpr (std::is_same_v<T, ShareFoundEvent>) {
+                     std::cout
+                        << "  "
+                        << (e.block_candidate ? "BLOCK CANDIDATE" : "SHARE HIT")
+                        << " generation=" << e.generation
+                        << " nonce=" << e.nonce
+                        << " hash=" << digest_hex_msb(e.hash) << '\n';
+                  } else if constexpr (std::is_same_v<T, ShareSubmitEvent>) {
+                     std::cout << "  share submission: "
+                               << (e.accepted ? "accepted" : "rejected")
+                               << '\n';
+                     std::cout << "    generation: " << e.generation << '\n';
+                     std::cout << "    job_id: " << e.job_id << '\n';
+                     std::cout << "    extranonce2: " << e.extranonce2_hex
+                               << '\n';
+                     std::cout << "    nonce: " << e.nonce << '\n';
+                     if (!e.error_text.empty()) {
+                        std::cout << "    error: " << e.error_text << '\n';
+                     }
+                     if (!e.raw_response.empty()) {
+                        std::cout << "    raw response: " << e.raw_response
+                                  << '\n';
+                     }
+                     print_running_totals(snapshot_counters(counters));
+                  } else if constexpr (std::is_same_v<
+                                          T, StaleShareDiscardedEvent>) {
+                     std::cout << "stale share candidate discarded:\n";
+                     std::cout << "  job_id: " << e.job_id << '\n';
+                     std::cout << "  nonce: " << e.nonce << '\n';
+                     std::cout
+                        << "  candidate_generation: " << e.candidate_generation
+                        << '\n';
+                     std::cout
+                        << "  current_generation: " << e.current_generation
+                        << '\n';
+                  } else if constexpr (std::is_same_v<T, ScanFinishedEvent>) {
+                     print_scan_finished(e);
+                     print_running_totals(snapshot_counters(counters));
+                  } else if constexpr (std::is_same_v<T, ShutdownEvent>) {
+                     std::cout << e.reason << '\n';
+                  } else if constexpr (std::is_same_v<T, ErrorEvent>) {
+                     std::cerr << "error[" << e.source << "]: " << e.message
+                               << '\n';
+                  } else if constexpr (std::is_same_v<T, ThreadExitedEvent>) {
+                     std::cout << "thread exited: " << e.thread_name << '\n';
+                     if (e.thread_name == "control") {
+                        control_exited = true;
+                     } else if (e.thread_name == "worker") {
+                        worker_exited = true;
+                     }
+                  }
+               },
+               event);
+         }
+
+         const auto now = std::chrono::steady_clock::now();
+         if (now - last_status_print >= std::chrono::seconds(2)) {
+            last_status_print = now;
+            if (!stop_requested) {
+               print_status_line(snapshot_counters(counters),
+                                 status_line_active);
+            }
+         }
       }
+
+      AppEvent leftover;
+      while (events.try_pop(leftover)) {
+         std::visit(
+            [&](const auto& e) {
+               using T = std::decay_t<decltype(e)>;
+               if constexpr (std::is_same_v<T, ErrorEvent>) {
+                  std::cerr << "error[" << e.source << "]: " << e.message
+                            << '\n';
+               }
+            },
+            leftover);
+      }
+
+      clear_status_line(status_line_active);
+
+      std::cout << "final totals:\n";
+      print_running_totals(snapshot_counters(counters));
+
+      {
+         std::lock_guard<std::mutex> lock(error_mutex);
+         if (first_error) {
+            std::rethrow_exception(first_error);
+         }
+      }
+
+      return 0;
    } catch (const std::exception& ex) {
       std::cerr << "fatal: " << ex.what() << '\n';
       return 1;

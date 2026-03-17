@@ -37,6 +37,8 @@ struct WorkState {
 void reset_nonce(WorkState& work) noexcept;
 void advance_extranonce2(WorkState& work);
 
+[[nodiscard]] WorkState with_nonce(const WorkState& work, std::uint32_t nonce);
+
 [[nodiscard]] ShareSubmission make_share_submission(const WorkState& work);
 
 } // namespace cpu_miner

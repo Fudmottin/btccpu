@@ -136,5 +136,12 @@ void advance_extranonce2(WorkState& work) {
    reset_nonce(work);
 }
 
+WorkState with_nonce(const WorkState& work, std::uint32_t nonce) {
+   WorkState copy = work;
+   copy.nonce = nonce;
+   set_header_nonce(copy.header_template, nonce);
+   return copy;
+}
+
 } // namespace cpu_miner
 

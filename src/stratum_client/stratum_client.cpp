@@ -19,8 +19,60 @@ template<class... Ts>
 struct Overload : Ts... {
    using Ts::operator()...;
 };
+
 template<class... Ts>
 Overload(Ts...) -> Overload<Ts...>;
+
+PollResult
+apply_parsed_message(const IncomingMessage& parsed,
+                     std::optional<SubscriptionContext>& subscription,
+                     std::optional<MiningJob>& current_job,
+                     double& difficulty) {
+   PollResult result{};
+
+   std::visit(Overload{
+                 [&](const UnknownMessage&) { result.got_message = true; },
+
+                 [&](const SetDifficultyMessage& msg) {
+                    result.got_message = true;
+                    if (difficulty != msg.difficulty) {
+                       difficulty = msg.difficulty;
+                       result.work_invalidated = true;
+                    }
+                 },
+
+                 [&](const NotifyMessage& msg) {
+                    result.got_message = true;
+                    current_job = MiningJob{
+                       .job_id = msg.job_id,
+                       .prevhash = msg.prevhash,
+                       .coinb1 = msg.coinb1,
+                       .coinb2 = msg.coinb2,
+                       .merkle_branch = msg.merkle_branch,
+                       .version = msg.version,
+                       .nbits = msg.nbits,
+                       .ntime = msg.ntime,
+                       .clean_jobs = msg.clean_jobs,
+                    };
+                    result.work_invalidated = true;
+                 },
+
+                 [&](const SubscribeResponse& msg) {
+                    result.got_message = true;
+                    subscription = SubscriptionContext{
+                       .extranonce1 = msg.extranonce1,
+                       .extranonce2_size = msg.extranonce2_size,
+                    };
+                 },
+
+                 [&](const AuthorizeResponse&) { result.got_message = true; },
+
+                 [&](const SubmitResponse&) { result.got_message = true; },
+              },
+              parsed);
+
+   return result;
+}
 
 } // namespace
 
@@ -58,8 +110,8 @@ void StratumClient::authorize(const std::string& user,
                       next_id_++));
 }
 
-void StratumClient::run_until_notify() {
-   while (!saw_notify_) {
+void StratumClient::run_until_ready() {
+   while (!ready()) {
       const std::string line = read_line();
       if (line.empty()) continue;
       handle_message(line);
@@ -107,43 +159,36 @@ void StratumClient::handle_message(std::string_view line) {
       return;
    }
 
-   std::visit(Overload{
-                 [this](const UnknownMessage&) {},
-
-                 [this](const SetDifficultyMessage& msg) {
-                    difficulty_ = msg.difficulty;
-                 },
-
-                 [this](const NotifyMessage& msg) {
-                    current_job_ = MiningJob{
-                       .job_id = msg.job_id,
-                       .prevhash = msg.prevhash,
-                       .coinb1 = msg.coinb1,
-                       .coinb2 = msg.coinb2,
-                       .merkle_branch = msg.merkle_branch,
-                       .version = msg.version,
-                       .nbits = msg.nbits,
-                       .ntime = msg.ntime,
-                       .clean_jobs = msg.clean_jobs,
-                    };
-                    saw_notify_ = true;
-                 },
-
-                 [this](const SubscribeResponse& msg) {
-                    subscription_ = SubscriptionContext{
-                       .extranonce1 = msg.extranonce1,
-                       .extranonce2_size = msg.extranonce2_size,
-                    };
-                 },
-
-                 [this](const AuthorizeResponse&) {},
-
-                 [this](const SubmitResponse&) {},
-              },
-              *parsed);
+   (void)apply_parsed_message(*parsed, subscription_, current_job_,
+                              difficulty_);
 }
 
-bool StratumClient::submit_share(const ShareSubmission& share) {
+bool StratumClient::ready() const noexcept {
+   return subscription_.has_value() && current_job_.has_value();
+}
+
+PollResult StratumClient::poll() {
+   boost::system::error_code ec;
+   const auto available = socket_.available(ec);
+   if (ec || available == 0U) {
+      return {};
+   }
+
+   const std::string line = read_line();
+   if (line.empty()) {
+      return {};
+   }
+
+   const auto parsed = parse_incoming_message(line);
+   if (!parsed) {
+      return {};
+   }
+
+   return apply_parsed_message(*parsed, subscription_, current_job_,
+                               difficulty_);
+}
+
+SubmitShareResult StratumClient::submit_share(const ShareSubmission& share) {
    if (worker_name_.empty()) {
       throw std::runtime_error("worker name is not set; authorize first");
    }
@@ -167,65 +212,22 @@ bool StratumClient::submit_share(const ShareSubmission& share) {
       const auto parsed = parse_incoming_message(line);
       if (!parsed) continue;
 
-      bool keep_waiting = false;
-      std::optional<bool> submit_result;
+      if (const auto* submit = std::get_if<SubmitResponse>(&*parsed)) {
+         if (submit->id != submit_id) {
+            (void)apply_parsed_message(*parsed, subscription_, current_job_,
+                                       difficulty_);
+            continue;
+         }
 
-      std::visit(Overload{
-                    [&](const UnknownMessage&) { keep_waiting = true; },
-
-                    [&](const SetDifficultyMessage& msg) {
-                       difficulty_ = msg.difficulty;
-                       keep_waiting = true;
-                    },
-
-                    [&](const NotifyMessage& msg) {
-                       current_job_ = MiningJob{
-                          .job_id = msg.job_id,
-                          .prevhash = msg.prevhash,
-                          .coinb1 = msg.coinb1,
-                          .coinb2 = msg.coinb2,
-                          .merkle_branch = msg.merkle_branch,
-                          .version = msg.version,
-                          .nbits = msg.nbits,
-                          .ntime = msg.ntime,
-                          .clean_jobs = msg.clean_jobs,
-                       };
-                       keep_waiting = true;
-                    },
-
-                    [&](const SubscribeResponse& msg) {
-                       subscription_ = SubscriptionContext{
-                          .extranonce1 = msg.extranonce1,
-                          .extranonce2_size = msg.extranonce2_size,
-                       };
-                       keep_waiting = true;
-                    },
-
-                    [&](const AuthorizeResponse&) { keep_waiting = true; },
-
-                    [&](const SubmitResponse& msg) {
-                       if (msg.id != submit_id) {
-                          keep_waiting = true;
-                          return;
-                       }
-
-                       if (msg.has_error) {
-                          submit_result = false;
-                          return;
-                       }
-
-                       submit_result = msg.accepted;
-                    },
-                 },
-                 *parsed);
-
-      if (submit_result.has_value()) {
-         return *submit_result;
+         SubmitShareResult result;
+         result.accepted = submit->accepted;
+         result.error_text = submit->error_text;
+         result.raw_response = line;
+         return result;
       }
 
-      if (keep_waiting) {
-         continue;
-      }
+      (void)apply_parsed_message(*parsed, subscription_, current_job_,
+                                 difficulty_);
    }
 }
 
