@@ -10,6 +10,31 @@
 #include <variant>
 #include <vector>
 
+/*******************************************************************************
+Purpose:
+  Keep Stratum V1 JSON handling isolated in this file pair and convert wire
+  data into explicit typed messages so the compiler can help catch mistakes.
+
+Scope:
+  - JSON parse and serialization
+  - typed request/response/message structures
+  - parsed message debug summaries
+
+Requirements:
+  - preserve the typed-message architecture
+  - keep ckpool behavior as the practical source of truth
+  - make protocol handling predictable even if Stratum V1 is ambiguous
+
+Do not:
+  - move socket I/O here
+  - move printing here
+  - leak raw JSON handling into unrelated parts of the miner
+
+Stop when:
+  - StratumClient can consume typed messages and retain raw wire lines
+    without owning JSON parse/format logic
+*******************************************************************************/
+
 namespace cpu_miner {
 
 enum class MessageType {
@@ -114,6 +139,7 @@ parse_incoming_message(std::string_view line);
 [[nodiscard]] std::string debug_summary(const AuthorizeResponse& msg);
 [[nodiscard]] std::string debug_summary(const SubmitResponse& msg);
 [[nodiscard]] std::string debug_summary(const UnknownMessage& msg);
+[[nodiscard]] std::string debug_summary(const IncomingMessage& msg);
 
 } // namespace cpu_miner
 

@@ -255,6 +255,8 @@ struct WorkUpdateEvent {
    bool clean_jobs{};
    double difficulty{};
    std::uint64_t generation{};
+   std::string raw_notify;
+   std::string parsed_summary;
 };
 
 struct ChunkStartedEvent {
@@ -395,6 +397,8 @@ void publish_latest_work(SharedWorkState& shared_work,
       .clean_jobs = job.clean_jobs,
       .difficulty = client.difficulty(),
       .generation = next.generation,
+      .raw_notify = client.last_raw_notify(),
+      .parsed_summary = client.last_parsed_summary(),
    });
 }
 
@@ -763,6 +767,13 @@ int main(int argc, char* argv[]) {
                         << "  clean_jobs: " << (e.clean_jobs ? "true" : "false")
                         << '\n';
                      std::cout << "  difficulty: " << e.difficulty << '\n';
+                     if (!e.raw_notify.empty()) {
+                        std::cout << "  raw notify: " << e.raw_notify << '\n';
+                     }
+                     if (!e.parsed_summary.empty()) {
+                        std::cout << "  parsed notify summary:\n";
+                        std::cout << e.parsed_summary;
+                     }
                   } else if constexpr (std::is_same_v<T, ChunkStartedEvent>) {
                      std::cout << "mining chunk:\n";
                      std::cout << "  generation: " << e.generation << '\n';

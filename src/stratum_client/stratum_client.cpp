@@ -114,7 +114,7 @@ void StratumClient::run_until_ready() {
    while (!ready()) {
       const std::string line = read_line();
       if (line.empty()) continue;
-      handle_message(line);
+      (void)handle_message(line);
    }
 }
 
@@ -133,7 +133,25 @@ const std::optional<MiningJob>& StratumClient::current_job() const noexcept {
 
 double StratumClient::difficulty() const noexcept { return difficulty_; }
 
+const std::string& StratumClient::last_raw_incoming() const noexcept {
+   return last_raw_incoming_;
+}
+
+const std::string& StratumClient::last_raw_outgoing() const noexcept {
+   return last_raw_outgoing_;
+}
+
+const std::string& StratumClient::last_raw_notify() const noexcept {
+   return last_raw_notify_;
+}
+
+const std::string& StratumClient::last_parsed_summary() const noexcept {
+   return last_parsed_summary_;
+}
+
 void StratumClient::send_wire_message(const std::string& wire) {
+   last_raw_outgoing_ = wire;
+
    std::string framed = wire;
    framed.push_back('\n');
    boost::asio::write(socket_, boost::asio::buffer(framed));
@@ -150,17 +168,25 @@ std::string StratumClient::read_line() {
       line.pop_back();
    }
 
+   last_raw_incoming_ = line;
    return line;
 }
 
-void StratumClient::handle_message(std::string_view line) {
+PollResult StratumClient::handle_message(std::string_view line) {
    const auto parsed = parse_incoming_message(line);
    if (!parsed) {
-      return;
+      last_parsed_summary_.clear();
+      return {};
    }
 
-   (void)apply_parsed_message(*parsed, subscription_, current_job_,
-                              difficulty_);
+   last_parsed_summary_ = debug_summary(*parsed);
+
+   if (std::holds_alternative<NotifyMessage>(*parsed)) {
+      last_raw_notify_ = std::string(line);
+   }
+
+   return apply_parsed_message(*parsed, subscription_, current_job_,
+                               difficulty_);
 }
 
 bool StratumClient::ready() const noexcept {
@@ -179,13 +205,7 @@ PollResult StratumClient::poll() {
       return {};
    }
 
-   const auto parsed = parse_incoming_message(line);
-   if (!parsed) {
-      return {};
-   }
-
-   return apply_parsed_message(*parsed, subscription_, current_job_,
-                               difficulty_);
+   return handle_message(line);
 }
 
 SubmitShareResult StratumClient::submit_share(const ShareSubmission& share) {
@@ -212,6 +232,12 @@ SubmitShareResult StratumClient::submit_share(const ShareSubmission& share) {
 
       const auto parsed = parse_incoming_message(line);
       if (!parsed) continue;
+
+      last_parsed_summary_ = debug_summary(*parsed);
+
+      if (std::holds_alternative<NotifyMessage>(*parsed)) {
+         last_raw_notify_ = line;
+      }
 
       if (const auto* submit = std::get_if<SubmitResponse>(&*parsed)) {
          if (submit->id != submit_id) {

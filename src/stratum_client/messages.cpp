@@ -5,11 +5,20 @@
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <variant>
 
 #include "stratum_client/messages.hpp"
 
 namespace cpu_miner {
 namespace {
+
+template<class... Ts>
+struct Overload : Ts... {
+   using Ts::operator()...;
+};
+
+template<class... Ts>
+Overload(Ts...) -> Overload<Ts...>;
 
 const boost::json::array* find_params_array(const boost::json::object& obj) {
    const auto it = obj.find("params");
@@ -340,6 +349,19 @@ std::string debug_summary(const UnknownMessage& msg) {
    out << "unknown:\n";
    out << "  raw: " << msg.raw << '\n';
    return out.str();
+}
+
+std::string debug_summary(const IncomingMessage& msg) {
+   return std::visit(
+      Overload{
+         [](const UnknownMessage& m) { return debug_summary(m); },
+         [](const SetDifficultyMessage& m) { return debug_summary(m); },
+         [](const NotifyMessage& m) { return debug_summary(m); },
+         [](const SubscribeResponse& m) { return debug_summary(m); },
+         [](const AuthorizeResponse& m) { return debug_summary(m); },
+         [](const SubmitResponse& m) { return debug_summary(m); },
+      },
+      msg);
 }
 
 } // namespace cpu_miner
