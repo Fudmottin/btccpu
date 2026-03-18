@@ -70,11 +70,7 @@ uint256 share_target_from_difficulty(std::uint64_t difficulty) {
 }
 
 uint256 hash_digest_to_uint256(const sha256::DigestBytes& digest_bytes) {
-   // digest_words_to_bytes_be() yields conventional digest byte order.
-   // For target comparison, interpret those bytes in big-endian order.
-   auto bytes = digest_bytes;
-   std::reverse(bytes.begin(), bytes.end());
-   return uint256::from_bytes_le(bytes.data());
+   return uint256::from_bytes_be(digest_bytes.data());
 }
 
 bool hash_meets_target(const sha256::DigestBytes& digest_bytes,

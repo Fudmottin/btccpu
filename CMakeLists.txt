@@ -9,7 +9,7 @@ project(cpu_miner
 
 # ---- Language / build settings ------------------------------------------------
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -51,7 +51,7 @@ target_include_directories(cpu_miner_util
       ${Boost_INCLUDE_DIRS}
 )
 
-target_compile_features(cpu_miner_util PUBLIC cxx_std_20)
+target_compile_features(cpu_miner_util PUBLIC cxx_std_23)
 
 # ---- Library: sha256 ----------------------------------------------------------
 
@@ -67,7 +67,7 @@ target_include_directories(cpu_miner_sha256
       ${Boost_INCLUDE_DIRS}
 )
 
-target_compile_features(cpu_miner_sha256 PUBLIC cxx_std_20)
+target_compile_features(cpu_miner_sha256 PUBLIC cxx_std_23)
 
 target_link_libraries(cpu_miner_sha256
    PUBLIC
@@ -102,7 +102,7 @@ target_include_directories(cpu_miner_mining_job
       ${Boost_INCLUDE_DIRS}
 )
 
-target_compile_features(cpu_miner_mining_job PUBLIC cxx_std_20)
+target_compile_features(cpu_miner_mining_job PUBLIC cxx_std_23)
 
 target_link_libraries(cpu_miner_mining_job
    PUBLIC
@@ -125,7 +125,7 @@ target_include_directories(cpu_miner_stratum
       ${Boost_INCLUDE_DIRS}
 )
 
-target_compile_features(cpu_miner_stratum PUBLIC cxx_std_20)
+target_compile_features(cpu_miner_stratum PUBLIC cxx_std_23)
 
 target_link_libraries(cpu_miner_stratum
    PUBLIC
