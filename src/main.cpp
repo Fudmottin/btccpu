@@ -247,6 +247,8 @@ struct StartupEvent {
    cpu_miner::WorkState work;
    double difficulty{};
    std::uint64_t share_difficulty{};
+   std::string extranonce1;
+   std::size_t extranonce2_size{};
 };
 
 struct WorkUpdateEvent {
@@ -276,6 +278,9 @@ struct ShareFoundEvent {
    cpu_miner::u256::uint256 share_target{};
    cpu_miner::u256::uint256 network_target{};
    bool block_candidate{};
+   std::string coinbase_hex;
+   std::string coinbase_hash_hex;
+   std::string merkle_root_hex;
 };
 
 struct ShareSubmitEvent {
@@ -501,6 +506,9 @@ int main(int argc, char* argv[]) {
                   .difficulty = client.difficulty(),
                   .share_difficulty =
                      static_cast<uint64_t>(published.share_difficulty),
+                  .extranonce1 = published.work.subscription.extranonce1,
+                  .extranonce2_size =
+                     published.work.subscription.extranonce2_size,
                });
             }
 
@@ -671,6 +679,10 @@ int main(int argc, char* argv[]) {
                            .share_target = published.share_target,
                            .network_target = published.network_target,
                            .block_candidate = is_block_candidate,
+                           .coinbase_hex = candidate.work.coinbase.coinbase_hex,
+                           .coinbase_hash_hex = digest_hex_msb(
+                              candidate.work.coinbase.coinbase_hash),
+                           .merkle_root_hex = candidate.work.merkle_root_hex,
                         });
                      });
 
@@ -748,6 +760,10 @@ int main(int argc, char* argv[]) {
                   if constexpr (std::is_same_v<T, StartupEvent>) {
                      std::cout << "Difficulty: " << e.difficulty << "\n";
                      print_startup_sanity(e.work);
+                     std::cout << "subscription:\n";
+                     std::cout << "  extranonce1: " << e.extranonce1 << '\n';
+                     std::cout << "  extranonce2_size: " << e.extranonce2_size
+                               << '\n';
 
                      const std::uint32_t nbits =
                         cpu_miner::u32_from_hex_be(e.work.job.nbits);
@@ -793,6 +809,14 @@ int main(int argc, char* argv[]) {
                                << e.share_target.to_hex_be_fixed() << '\n';
                      std::cout << "    network target:     "
                                << e.network_target.to_hex_be_fixed() << '\n';
+                     std::cout << "    coinbase_hex:       " << e.coinbase_hex
+                               << '\n';
+                     std::cout
+                        << "    coinbase_hash:      " << e.coinbase_hash_hex
+                        << '\n';
+                     std::cout
+                        << "    merkle_root:        " << e.merkle_root_hex
+                        << '\n';
                   } else if constexpr (std::is_same_v<T, ShareSubmitEvent>) {
                      std::cout << "  share submission: "
                                << (e.accepted ? "accepted" : "rejected")

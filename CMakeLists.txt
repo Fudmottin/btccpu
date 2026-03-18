@@ -163,6 +163,24 @@ target_link_libraries(cpu_miner
       Boost::json
 )
 
+add_executable(rejected_share_repro
+   src/repro/rejected_share_repro.cpp
+)
+
+target_include_directories(rejected_share_repro
+   PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
+   SYSTEM PRIVATE
+      ${Boost_INCLUDE_DIRS}
+)
+
+target_link_libraries(rejected_share_repro
+   PRIVATE
+      cpu_miner_mining_job
+      cpu_miner_sha256
+      cpu_miner_util
+)
+
 # ---- Warnings and Optimizations ----------------------------------------------
 
 function(cpu_miner_set_optimization target_name)
@@ -211,6 +229,9 @@ cpu_miner_set_optimization(cpu_miner_sha256)
 cpu_miner_set_optimization(cpu_miner_mining_job)
 cpu_miner_set_optimization(cpu_miner_stratum)
 cpu_miner_set_optimization(cpu_miner)
+
+cpu_miner_set_warnings(rejected_share_repro)
+cpu_miner_set_optimization(rejected_share_repro)
 
 # ---- Tests --------------------------------------------------------------------
 

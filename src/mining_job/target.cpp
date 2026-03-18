@@ -1,5 +1,6 @@
 // src/mining_job/target.cpp
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
@@ -69,10 +70,11 @@ uint256 share_target_from_difficulty(std::uint64_t difficulty) {
 }
 
 uint256 hash_digest_to_uint256(const sha256::DigestBytes& digest_bytes) {
-   // SHA-256 digest bytes are produced in conventional big-endian digest order.
-   // Bitcoin target comparison treats the hash as a little-endian 256-bit
-   // integer.
-   return uint256::from_bytes_le(digest_bytes.data());
+   // digest_words_to_bytes_be() yields conventional digest byte order.
+   // For target comparison, interpret those bytes in big-endian order.
+   auto bytes = digest_bytes;
+   std::reverse(bytes.begin(), bytes.end());
+   return uint256::from_bytes_le(bytes.data());
 }
 
 bool hash_meets_target(const sha256::DigestBytes& digest_bytes,

@@ -20,6 +20,21 @@ int hex_value(char ch) noexcept {
    return -1;
 }
 
+std::string hex_from_u32_impl(std::uint32_t value, bool little_endian) {
+   std::string out(8U, '0');
+
+   for (std::size_t byte = 0; byte < 4U; ++byte) {
+      const std::size_t src_byte = little_endian ? byte : (3U - byte);
+      const auto shift = static_cast<unsigned>(src_byte * 8U);
+      const auto b = static_cast<std::uint8_t>((value >> shift) & 0xffU);
+
+      out[byte * 2U + 0U] = hex_digits[(b >> 4U) & 0x0fU];
+      out[byte * 2U + 1U] = hex_digits[b & 0x0fU];
+   }
+
+   return out;
+}
+
 } // namespace
 
 bool is_lower_hex_digit(char ch) {
@@ -33,6 +48,14 @@ bool is_lower_hex_string(std::string_view s) {
       if (!is_lower_hex_digit(ch)) return false;
    }
    return true;
+}
+
+std::string hex_from_u32_be(std::uint32_t value) {
+   return hex_from_u32_impl(value, false);
+}
+
+std::string hex_from_u32_le(std::uint32_t value) {
+   return hex_from_u32_impl(value, true);
 }
 
 std::string hex_from_u64_be(std::uint64_t value, std::size_t size_bytes) {
@@ -100,7 +123,7 @@ std::uint32_t u32_from_hex_be(std::string_view hex) {
       throw std::invalid_argument("u32_from_hex_be requires lowercase hex");
    }
 
-   std::uint32_t value = 0;
+   std::uint32_t value = 0U;
    for (char ch : hex) {
       const int v = hex_value(ch);
       if (v < 0) {
@@ -112,5 +135,22 @@ std::uint32_t u32_from_hex_be(std::string_view hex) {
    }
    return value;
 }
+
+std::uint32_t u32_from_hex_le(std::string_view hex) {
+   if (hex.size() != 8U) {
+      throw std::invalid_argument("u32_from_hex_le requires 8 hex chars");
+   }
+   if (!is_lower_hex_string(hex)) {
+      throw std::invalid_argument("u32_from_hex_le requires lowercase hex");
+   }
+
+   const auto bytes = hex_to_bytes(hex);
+
+   return static_cast<std::uint32_t>(bytes[0]) |
+          (static_cast<std::uint32_t>(bytes[1]) << 8U) |
+          (static_cast<std::uint32_t>(bytes[2]) << 16U) |
+          (static_cast<std::uint32_t>(bytes[3]) << 24U);
+}
+
 } // namespace cpu_miner
 
