@@ -70,13 +70,12 @@ uint256 share_target_from_difficulty(std::uint64_t difficulty) {
 }
 
 uint256 hash_digest_to_uint256(const sha256::DigestBytes& digest_bytes) {
-   return uint256::from_bytes_be(digest_bytes.data());
+   return uint256::from_bytes_le(digest_bytes.data());
 }
 
 bool hash_meets_target(const sha256::DigestBytes& digest_bytes,
                        const uint256& target) {
-   const auto hash_value = hash_digest_to_uint256(digest_bytes);
-   return hash_value <= target;
+   return hash_digest_to_uint256(digest_bytes) <= target;
 }
 
 } // namespace cpu_miner

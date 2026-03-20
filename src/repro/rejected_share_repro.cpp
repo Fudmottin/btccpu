@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <exception>
 #include <iostream>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -25,6 +27,12 @@ enum class Transform32 {
    swap_u32_bytes,
 };
 
+constexpr std::array all_transforms{
+   Transform32::identity,
+   Transform32::reverse_32,
+   Transform32::swap_u32_bytes,
+};
+
 HashBytes hash32_from_hex(std::string_view hex) {
    const auto bytes = cpu_miner::hex_to_bytes(hex);
    if (bytes.size() != 32U) {
@@ -35,7 +43,6 @@ HashBytes hash32_from_hex(std::string_view hex) {
    for (std::size_t i = 0; i < out.size(); ++i) {
       out[i] = bytes[i];
    }
-
    return out;
 }
 
@@ -68,8 +75,11 @@ const char* transform_name(Transform32 t) {
    case Transform32::swap_u32_bytes:
       return "swap_u32_bytes";
    }
-
    return "unknown";
+}
+
+std::string bytes_to_hex_forward(std::span<const std::uint8_t> bytes) {
+   return cpu_miner::bytes_to_hex(bytes);
 }
 
 std::string bytes_to_hex_reversed(std::span<const std::uint8_t> bytes) {
@@ -87,26 +97,9 @@ std::string bytes_to_hex_reversed(std::span<const std::uint8_t> bytes) {
    return hex;
 }
 
-std::string bytes_to_hex_forward(std::span<const std::uint8_t> bytes) {
-   return cpu_miner::bytes_to_hex(bytes);
-}
-
-std::string digest_hex_msb(const cpu_miner::sha256::DigestBytes& digest) {
-   return bytes_to_hex_reversed(digest);
-}
-
 HashBytes dbl_sha256_bytes(std::span<const std::uint8_t> bytes) {
    const auto words = cpu_miner::sha256::dbl_sha256_words(bytes);
    return cpu_miner::sha256::digest_words_to_bytes_be(words);
-}
-
-uint256 hash_as_le_uint256(const HashBytes& hash_bytes) {
-   return uint256::from_bytes_le(hash_bytes.data());
-}
-
-uint256 hash_as_be_uint256(HashBytes hash_bytes) {
-   std::reverse(hash_bytes.begin(), hash_bytes.end());
-   return uint256::from_bytes_le(hash_bytes.data());
 }
 
 HashBytes merkle_fold_variant(HashBytes current_hash,
@@ -129,76 +122,109 @@ HashBytes merkle_fold_variant(HashBytes current_hash,
    return current_hash;
 }
 
-void run_variant(std::string_view label, std::string_view prevhash_hex,
-                 std::string_view coinbase_hex,
+struct VariantResult {
+   Transform32 coinbase_transform{};
+   Transform32 prevhash_transform{};
+   Transform32 branch_transform{};
+   Transform32 final_merkle_transform{};
+
+   HashBytes coinbase_hash_raw{};
+   HashBytes coinbase_hash_for_tree{};
+   HashBytes prevhash_for_header{};
+   HashBytes merkle_root_raw{};
+   HashBytes merkle_root_for_header{};
+   std::array<std::uint8_t, 80> header{};
+   HashBytes header_hash_raw{};
+
+   bool meets_share{};
+   bool meets_network{};
+};
+
+VariantResult
+evaluate_variant(std::string_view prevhash_hex, std::string_view coinbase_hex,
                  const std::vector<std::string>& merkle_branch,
                  Transform32 coinbase_transform, Transform32 prevhash_transform,
                  Transform32 branch_transform,
                  Transform32 final_merkle_transform, std::uint32_t version,
                  std::uint32_t ntime, std::uint32_t nbits, std::uint32_t nonce,
                  const uint256& share_target, const uint256& network_target) {
-   const auto coinbase_bytes = cpu_miner::hex_to_bytes(coinbase_hex);
-   const auto coinbase_hash_raw = dbl_sha256_bytes(coinbase_bytes);
-   const auto coinbase_hash =
-      apply_transform(coinbase_hash_raw, coinbase_transform);
+   VariantResult result{};
+   result.coinbase_transform = coinbase_transform;
+   result.prevhash_transform = prevhash_transform;
+   result.branch_transform = branch_transform;
+   result.final_merkle_transform = final_merkle_transform;
 
-   const auto prevhash =
+   const auto coinbase_bytes = cpu_miner::hex_to_bytes(coinbase_hex);
+   result.coinbase_hash_raw = dbl_sha256_bytes(coinbase_bytes);
+   result.coinbase_hash_for_tree =
+      apply_transform(result.coinbase_hash_raw, coinbase_transform);
+
+   result.prevhash_for_header =
       apply_transform(hash32_from_hex(prevhash_hex), prevhash_transform);
 
-   const auto merkle_raw =
-      merkle_fold_variant(coinbase_hash, merkle_branch, branch_transform);
-   const auto merkle_root = apply_transform(merkle_raw, final_merkle_transform);
+   result.merkle_root_raw =
+      merkle_fold_variant(result.coinbase_hash_for_tree, merkle_branch,
+                          branch_transform);
+   result.merkle_root_for_header =
+      apply_transform(result.merkle_root_raw, final_merkle_transform);
 
-   const auto header =
-      cpu_miner::make_header_bytes(version, prevhash, merkle_root, ntime, nbits,
-                                   nonce);
+   result.header =
+      cpu_miner::make_sha_input_header_bytes(version,
+                                             result.prevhash_for_header,
+                                             result.merkle_root_for_header,
+                                             ntime, nbits, nonce);
 
-   const auto hash_words = cpu_miner::sha256::dbl_sha256_words(header);
-   const auto hash_bytes =
-      cpu_miner::sha256::digest_words_to_bytes_be(hash_words);
+   result.header_hash_raw = dbl_sha256_bytes(result.header);
+   result.meets_share =
+      cpu_miner::hash_meets_target(result.header_hash_raw, share_target);
+   result.meets_network =
+      cpu_miner::hash_meets_target(result.header_hash_raw, network_target);
 
-   const auto hash_le = hash_as_le_uint256(hash_bytes);
-   const auto hash_be = hash_as_be_uint256(hash_bytes);
+   return result;
+}
 
-   const bool meets_share_le = hash_le <= share_target;
-   const bool meets_share_be = hash_be <= share_target;
-   const bool meets_network_le = hash_le <= network_target;
-   const bool meets_network_be = hash_be <= network_target;
+void print_variant(const VariantResult& r) {
+   std::cout << "alternate models producing false local share hits:\n";
+   std::cout << "  coinbase transform:    "
+             << transform_name(r.coinbase_transform) << '\n';
+   std::cout << "  prevhash transform:    "
+             << transform_name(r.prevhash_transform) << '\n';
+   std::cout << "  branch transform:      "
+             << transform_name(r.branch_transform) << '\n';
+   std::cout << "  final merkle xform:    "
+             << transform_name(r.final_merkle_transform) << '\n';
 
+   std::cout << "  coinbase hash raw:     "
+             << bytes_to_hex_forward(r.coinbase_hash_raw) << '\n';
    std::cout << "  coinbase hash display: "
-             << bytes_to_hex_reversed(coinbase_hash_raw) << '\n';
-   std::cout << "variant: " << label << '\n';
-   std::cout << "  coinbase transform:   " << transform_name(coinbase_transform)
+             << bytes_to_hex_reversed(r.coinbase_hash_raw) << '\n';
+
+   std::cout << "  coinbase hash in tree: "
+             << bytes_to_hex_forward(r.coinbase_hash_for_tree) << '\n';
+
+   std::cout << "  prevhash in header:    "
+             << bytes_to_hex_forward(r.prevhash_for_header) << '\n';
+
+   std::cout << "  merkle root raw:       "
+             << bytes_to_hex_forward(r.merkle_root_raw) << '\n';
+   std::cout << "  merkle root display:   "
+             << bytes_to_hex_reversed(r.merkle_root_raw) << '\n';
+
+   std::cout << "  merkle root in header: "
+             << bytes_to_hex_forward(r.merkle_root_for_header) << '\n';
+
+   std::cout << "  header hex:            " << cpu_miner::header_hex(r.header)
              << '\n';
-   std::cout << "  prevhash transform:   " << transform_name(prevhash_transform)
-             << '\n';
-   std::cout << "  branch transform:     " << transform_name(branch_transform)
-             << '\n';
-   std::cout << "  final merkle xform:   "
-             << transform_name(final_merkle_transform) << '\n';
-   std::cout << "  merkle root display:  " << bytes_to_hex_reversed(merkle_root)
-             << '\n';
-   std::cout << "  header hex:           " << cpu_miner::header_hex(header)
-             << '\n';
-   std::cout << "  hash bytes forward:   " << bytes_to_hex_forward(hash_bytes)
-             << '\n';
-   std::cout << "  header hash display:  " << digest_hex_msb(hash_bytes)
-             << '\n';
-   std::cout << "  hash uint256 le:      " << hash_le.to_hex_be_fixed() << '\n';
-   std::cout << "  hash uint256 be:      " << hash_be.to_hex_be_fixed() << '\n';
-   std::cout << "  meets share target:   "
-             << (cpu_miner::hash_meets_target(hash_bytes, share_target)
-                    ? "true"
-                    : "false")
-             << '\n';
-   std::cout << "  meets share target le:"
-             << (meets_share_le ? " true" : " false") << '\n';
-   std::cout << "  meets share target be:"
-             << (meets_share_be ? " true" : " false") << '\n';
-   std::cout << "  meets net target le:  "
-             << (meets_network_le ? "true" : "false") << '\n';
-   std::cout << "  meets net target be:  "
-             << (meets_network_be ? "true" : "false") << '\n';
+
+   std::cout << "  hash raw bytes:        "
+             << bytes_to_hex_forward(r.header_hash_raw) << '\n';
+   std::cout << "  hash display:          "
+             << bytes_to_hex_reversed(r.header_hash_raw) << '\n';
+
+   std::cout << "  meets share target:    "
+             << (r.meets_share ? "true" : "false") << '\n';
+   std::cout << "  meets network target:  "
+             << (r.meets_network ? "true" : "false") << '\n';
    std::cout << '\n';
 }
 
@@ -207,41 +233,45 @@ void run_variant(std::string_view label, std::string_view prevhash_hex,
 int main() {
    try {
       /*************************************************************************
-      Captured rejected share:
-        generation: 9
-        job_id:     69b23e100000458d
-        ntime:      69ba3257
-        nonce:      99867158
-        nonce_hex:  05f3da16
-        result:     rejected as "Above target"
+      Live rejected share:
+
+      generation:   86
+      job_id:       69b23e1000005a88
+      ntime:        69bc9e60
+      nonce_hex:    0525050b
+      extranonce1:  3e3eb26900000000
+      extranonce2:  0000000000000000
+      pool result:  rejected as "Above target"
       *************************************************************************/
 
-      const std::string job_id = "69b23e100000458d";
+      const std::string job_id = "69b23e1000005a88";
+
       const std::string prevhash_hex =
-         "0b60966e8ba272edc094e436972f5393cdc5b07d00000c330000000000000000";
+         "60a003fb36548de6ed395d227308a62488b0d1c5000169d70000000000000000";
+
       const std::string coinb1 =
          "0100000001000000000000000000000000000000000000000000000000000000"
-         "0000000000ffffffff3503325c0e00045732ba690437bd601710";
-      const std::string extranonce1 = "3b3eb26900000000";
+         "0000000000ffffffff3503335d0e0004609ebc69047e483d0d10";
+
+      const std::string extranonce1 = "3e3eb26900000000";
       const std::string extranonce2 = "0000000000000000";
+
       const std::string coinb2 =
-         "0a636b706f6f6c0d2f42697441786520427272722fffffffff026d97ae120000"
+         "0a636b706f6f6c0d2f42697441786520427272722fffffffff02f0c8a5120000"
          "0000160014f42e1a5f41c23247de0022aca1b069ca3e43e0bc00000000000000"
-         "00266a24aa21a9edef56a4295718f9bcca6bdd8995d7363f2276443e1c91bcf7"
-         "8ce9d15b6f8d8bff00000000";
+         "00266a24aa21a9edae14689538cbacfe37f6e55e5acb11f6528600ede90d01f52"
+         "328a7154468280700000000";
 
       const std::vector<std::string> merkle_branch = {
-         "64a87c6bc9ad703a6510b545d6f7ed3cf6edef1495303bb2bb0452c129d0f0e9",
-         "56a7e5b2c01038c1644a765543521ce531c3251ecb13f1655e262254c77b1d20",
-         "ef43eeedcc19edc3917b788d80c75f0a3f49774e061dac75dcb51cc887796d7b",
-         "d6b86633337d8abcb148e5276e3071f8259ed2ae887e12d4914a5a226a088571",
-         "4fbea83eb045907b5009119775ed62e44456cff0e345634f4314721a988b9a24",
-         "df16cbc05d6efc3b4b04429e63e44075fcffd9f0d844342cf9935ba6183b21d3",
-         "a3a1da21094fec0e3891309a644849c99cc69050ca558c8d995decb15ceb8de6",
-         "a4c622bc0527fe759e46fb857fbbbc0a6baf2b1fd560bd2b0f137f89e12ed8ab",
-         "09f9d31ac963272608cf550c1a820f7aa17bc43b6d7a9ff69a610b3906663423",
-         "abe9b9993f2d4690fc57dcf199d00c3be1a66eca5291a954c9ebf3bd581bd76b",
-         "207ebd2aa146c06a20fb13947f4391da9f45a2435ae57bc97d300064449bd91d",
+         "763fc3374b1d35c9110f4424d6a86bfc5057eab9e20419f40667b25105d37f9b",
+         "19f4561c51dab0f5af712b1d833405cbb75bad91114abc575b92aa0d6eb324b0",
+         "12ac175d0ae5a54a79ff439a0ad8bb1e3d9495c7226587da73c2af009db13b39",
+         "836776ec508139f7dc8058c5bcc320eddaedc85bac297f3c469a080cfc4d4ed4",
+         "8a58e8348bfbce05b7cd5834877be291511b9293008ad49e8ccd125cf29a6613",
+         "92a866abe78e22a31c3eefa7c36e2049e6bac9fe8242eaa065414b67688a7b2b",
+         "df3aa4a153486c615b79263388f1fe1d8adc48bdc0467310795da2d7d57866ad",
+         "04d8a5f87d67d225ce47dd8049dba0e21eb3d6dcd34e89a90d688d721812fdff",
+         "ea1b30222b36b1b7657a7777a7da0c347d2307235255379f27c2ee856dc96501",
       };
 
       const std::string coinbase_hex =
@@ -249,40 +279,65 @@ int main() {
 
       const std::uint32_t version = cpu_miner::u32_from_hex_be("20000000");
       const std::uint32_t nbits = cpu_miner::u32_from_hex_be("1701f0cc");
-      const std::uint32_t ntime = cpu_miner::u32_from_hex_be("69ba3257");
-      const std::uint32_t nonce = cpu_miner::u32_from_hex_be("05f3da16");
+      const std::uint32_t ntime = cpu_miner::u32_from_hex_be("69bc9e60");
+      const std::uint32_t nonce = cpu_miner::u32_from_hex_be("0525050b");
 
       const auto share_target = cpu_miner::share_target_from_difficulty(1ULL);
       const auto network_target = cpu_miner::expand_compact_target(nbits);
 
       std::cout << "job_id: " << job_id << '\n';
       std::cout << "coinbase hex chars: " << coinbase_hex.size() << '\n';
+      std::cout << "merkle branches: " << merkle_branch.size() << '\n';
       std::cout << "share target:   " << share_target.to_hex_be_fixed() << '\n';
       std::cout << "network target: " << network_target.to_hex_be_fixed()
                 << "\n\n";
 
-      run_variant("current-code-like", prevhash_hex, coinbase_hex,
-                  merkle_branch, Transform32::identity,
-                  Transform32::swap_u32_bytes, Transform32::identity,
-                  Transform32::swap_u32_bytes, version, ntime, nbits, nonce,
-                  share_target, network_target);
+      std::size_t total_variants = 0;
+      std::size_t share_hits = 0;
+      std::size_t network_hits = 0;
 
-      run_variant("grok-like", prevhash_hex, coinbase_hex, merkle_branch,
-                  Transform32::identity, Transform32::reverse_32,
-                  Transform32::reverse_32, Transform32::identity, version,
-                  ntime, nbits, nonce, share_target, network_target);
+      const auto current_miner = evaluate_variant(
+         prevhash_hex, coinbase_hex, merkle_branch,
+         Transform32::identity,       // coinbase leaf
+         Transform32::swap_u32_bytes, // prevhash in SHA-input header
+         Transform32::identity,       // merkle branches
+         Transform32::identity,       // final merkle root in SHA-input header
+         version, ntime, nbits, nonce, share_target, network_target);
 
-      run_variant("current + reverse-coinbase-leaf", prevhash_hex, coinbase_hex,
-                  merkle_branch, Transform32::reverse_32,
-                  Transform32::swap_u32_bytes, Transform32::identity,
-                  Transform32::swap_u32_bytes, version, ntime, nbits, nonce,
-                  share_target, network_target);
+      std::cout << "current miner model:\n";
+      print_variant(current_miner);
 
-      run_variant("current + swap-coinbase-leaf", prevhash_hex, coinbase_hex,
-                  merkle_branch, Transform32::swap_u32_bytes,
-                  Transform32::swap_u32_bytes, Transform32::identity,
-                  Transform32::swap_u32_bytes, version, ntime, nbits, nonce,
-                  share_target, network_target);
+      for (const auto coinbase_t : all_transforms) {
+         for (const auto prevhash_t : all_transforms) {
+            for (const auto branch_t : all_transforms) {
+               for (const auto final_merkle_t : all_transforms) {
+                  ++total_variants;
+
+                  const auto result =
+                     evaluate_variant(prevhash_hex, coinbase_hex, merkle_branch,
+                                      coinbase_t, prevhash_t, branch_t,
+                                      final_merkle_t, version, ntime, nbits,
+                                      nonce, share_target, network_target);
+
+                  if (!result.meets_share) {
+                     continue;
+                  }
+
+                  ++share_hits;
+                  if (result.meets_network) {
+                     ++network_hits;
+                  }
+
+                  print_variant(result);
+               }
+            }
+         }
+      }
+
+      std::cout << "summary:\n";
+      std::cout << "  total variants:      " << total_variants << '\n';
+      std::cout << "  share-target hits:   " << share_hits << '\n';
+      std::cout << "  network-target hits: " << network_hits << '\n';
 
       return 0;
    } catch (const std::exception& ex) {

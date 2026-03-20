@@ -44,9 +44,10 @@ sha256::BlockWords block_words_from_bytes(const std::uint8_t* in) noexcept {
 
 } // namespace
 
-HeaderBytes make_header_bytes(std::uint32_t version, const HashBytes& prevhash,
-                              const HashBytes& merkle_root, std::uint32_t ntime,
-                              std::uint32_t nbits, std::uint32_t nonce) {
+HeaderBytes
+make_sha_input_header_bytes(std::uint32_t version, const HashBytes& prevhash,
+                            const HashBytes& merkle_root, std::uint32_t ntime,
+                            std::uint32_t nbits, std::uint32_t nonce) {
    HeaderBytes header{};
 
    std::size_t offset = 0;
@@ -83,7 +84,8 @@ HeaderTemplate make_header_template(std::uint32_t version,
    HeaderTemplate header{};
 
    const HeaderBytes bytes =
-      make_header_bytes(version, prevhash, merkle_root, ntime, nbits, nonce);
+      make_sha_input_header_bytes(version, prevhash, merkle_root, ntime, nbits,
+                                  nonce);
 
    header.block0 = block_words_from_bytes(bytes.data());
    header.block1 = block_words_from_bytes(bytes.data() + 64U);

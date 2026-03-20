@@ -61,14 +61,13 @@ void rebuild_derived_state(WorkState& work) {
 
    work.coinbase = build_coinbase(work.job, work.subscription, extranonce2);
 
-   work.merkle_root_hex =
-      merkle_root_hex(work.coinbase.coinbase_hash, work.job.merkle_branch);
+   work.merkle_root_raw_hex =
+      merkle_root_raw_hex(work.coinbase.coinbase_hash, work.job.merkle_branch);
 
    work.prevhash = hash32_from_hex(work.job.prevhash);
-   work.merkle_root = hash32_from_hex(work.merkle_root_hex);
+   work.merkle_root = hash32_from_hex(work.merkle_root_raw_hex);
 
    swap_bytes_in_each_u32(std::span<std::uint8_t, 32>(work.prevhash));
-   swap_bytes_in_each_u32(std::span<std::uint8_t, 32>(work.merkle_root));
 
    const std::uint32_t version = u32_from_hex_be(work.job.version);
    const std::uint32_t ntime = u32_from_hex_be(work.job.ntime);

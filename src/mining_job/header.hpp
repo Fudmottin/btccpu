@@ -20,9 +20,10 @@ struct HeaderTemplate {
    sha256::DigestWords midstate{};
 };
 
-HeaderBytes make_header_bytes(std::uint32_t version, const HashBytes& prevhash,
-                              const HashBytes& merkle_root, std::uint32_t ntime,
-                              std::uint32_t nbits, std::uint32_t nonce);
+HeaderBytes
+make_sha_input_header_bytes(std::uint32_t version, const HashBytes& prevhash,
+                            const HashBytes& merkle_root, std::uint32_t ntime,
+                            std::uint32_t nbits, std::uint32_t nonce);
 
 std::string header_hex(const HeaderBytes& header);
 

@@ -21,7 +21,7 @@ struct WorkState {
    std::uint32_t nonce{};
 
    CoinbaseBuild coinbase;
-   std::string merkle_root_hex;
+   std::string merkle_root_raw_hex;
 
    HashBytes prevhash{};
    HashBytes merkle_root{};

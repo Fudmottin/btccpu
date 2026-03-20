@@ -84,7 +84,7 @@ void print_startup_sanity(const cpu_miner::WorkState& work) {
       cpu_miner::decode_coinbase(work.coinbase.coinbase_bytes);
    cpu_miner::print_coinbase_decoded(decoded_coinbase, std::cout);
 
-   std::cout << "  merkle_root: " << work.merkle_root_hex << '\n';
+   std::cout << "  merkle_root: " << work.merkle_root_raw_hex << '\n';
 
    const std::uint32_t version = cpu_miner::u32_from_hex_be(work.job.version);
    const std::uint32_t ntime = cpu_miner::u32_from_hex_be(work.job.ntime);
@@ -92,8 +92,9 @@ void print_startup_sanity(const cpu_miner::WorkState& work) {
    const std::uint32_t nonce0 = 0U;
 
    const auto header =
-      cpu_miner::make_header_bytes(version, work.prevhash, work.merkle_root,
-                                   ntime, nbits, nonce0);
+      cpu_miner::make_sha_input_header_bytes(version, work.prevhash,
+                                             work.merkle_root, ntime, nbits,
+                                             nonce0);
 
    const std::string header_hex = cpu_miner::header_hex(header);
    const auto header_hash_words = cpu_miner::sha256::dbl_sha256_words(header);
@@ -280,7 +281,7 @@ struct ShareFoundEvent {
    bool block_candidate{};
    std::string coinbase_hex;
    std::string coinbase_hash_hex;
-   std::string merkle_root_hex;
+   std::string merkle_root_raw_hex;
 };
 
 struct ShareSubmitEvent {
@@ -549,9 +550,7 @@ int main(int argc, char* argv[]) {
                      .job_id = candidate.work.job.job_id,
                      .extranonce2_hex = candidate.work.coinbase.extranonce2_hex,
                      .ntime_hex = candidate.work.job.ntime,
-                     .nonce_hex =
-                        cpu_miner::make_share_submission(candidate.work)
-                           .nonce_hex,
+                     .nonce_hex = submission.nonce_hex,
                      .generation = candidate.generation,
                      .nonce = candidate.nonce,
                      .accepted = submit_result.accepted,
@@ -682,7 +681,8 @@ int main(int argc, char* argv[]) {
                            .coinbase_hex = candidate.work.coinbase.coinbase_hex,
                            .coinbase_hash_hex = digest_hex_msb(
                               candidate.work.coinbase.coinbase_hash),
-                           .merkle_root_hex = candidate.work.merkle_root_hex,
+                           .merkle_root_raw_hex =
+                              candidate.work.merkle_root_raw_hex,
                         });
                      });
 
@@ -803,19 +803,40 @@ int main(int argc, char* argv[]) {
                         << "  "
                         << (e.block_candidate ? "BLOCK CANDIDATE" : "SHARE HIT")
                         << " generation=" << e.generation
-                        << " nonce=" << e.nonce
-                        << " hash=" << digest_hex_msb(e.hash) << '\n';
-                     std::cout << "    local share target: "
+                        << " nonce=" << e.nonce << '\n';
+
+                     // --- hash ---
+                     std::cout
+                        << "    hash (display, BE):  " << digest_hex_msb(e.hash)
+                        << '\n';
+                     std::cout << "    hash (raw bytes):    "
+                               << cpu_miner::bytes_to_hex(e.hash) << '\n';
+
+                     // --- targets ---
+                     std::cout << "    share target:        "
                                << e.share_target.to_hex_be_fixed() << '\n';
-                     std::cout << "    network target:     "
+                     std::cout << "    network target:      "
                                << e.network_target.to_hex_be_fixed() << '\n';
-                     std::cout << "    coinbase_hex:       " << e.coinbase_hex
+
+                     // --- comparison (authoritative path) ---
+                     const auto meets_share =
+                        cpu_miner::hash_meets_target(e.hash, e.share_target);
+                     const auto meets_network =
+                        cpu_miner::hash_meets_target(e.hash, e.network_target);
+
+                     std::cout << "    meets share target:  "
+                               << (meets_share ? "true" : "false") << '\n';
+                     std::cout << "    meets network target:"
+                               << (meets_network ? " true" : " false") << '\n';
+
+                     // --- construction diagnostics ---
+                     std::cout << "    coinbase hex:        " << e.coinbase_hex
                                << '\n';
                      std::cout
-                        << "    coinbase_hash:      " << e.coinbase_hash_hex
+                        << "    coinbase hash (BE):  " << e.coinbase_hash_hex
                         << '\n';
                      std::cout
-                        << "    merkle_root:        " << e.merkle_root_hex
+                        << "    merkle root (BE):    " << e.merkle_root_raw_hex
                         << '\n';
                   } else if constexpr (std::is_same_v<T, ShareSubmitEvent>) {
                      std::cout << "  share submission: "

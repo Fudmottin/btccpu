@@ -48,7 +48,7 @@ HashBytes merkle_fold(HashBytes current_hash,
    return current_hash;
 }
 
-std::string merkle_root_hex(HashBytes coinbase_hash,
+std::string merkle_root_raw_hex(HashBytes coinbase_hash,
                             const std::vector<std::string>& merkle_branch) {
    const HashBytes root = merkle_fold(coinbase_hash, merkle_branch);
    return bytes_to_hex(root);
