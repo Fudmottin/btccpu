@@ -1,0 +1,66 @@
+work update:                                                                    
+  generation: 23
+  job_id: 69b23e1000005c34
+  ntime: 69bccef7
+  clean_jobs: false
+  difficulty: 1
+  raw notify: {"params":["69b23e1000005c34","e51ad5fa5621c25d2acddbdf84d450603f465ea30000f5080000000000000000","01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff3503405d0e0004f7cebc6904d997a02810","0a636b706f6f6c0d2f42697441786520427272722fffffffff02288aa11200000000160014f42e1a5f41c23247de0022aca1b069ca3e43e0bc0000000000000000266a24aa21a9ed7f45ecf1c44f416bda0266b14e8f3e6c553963a34bee620a6d34656dee710bd000000000",["2cf3b8ed87f898203740953a940da8c0a6dfff5e6bd108c622f26a50a1658ffc","7588f0078cd6500322384afe2a06bbdc1bfb3377534f973e0286877a5072e872","de732123dfcb32c200d92937bae3b8d19ddf5490e420714bb3d14c1a91478d8f","f0d85f993d2739e0fa0469b59fcda525eadf7b31c9b573bf7345b1f7bd7f1479","57be3e820b0fd801617120f0098807b300bb810d5629cd3a73e7d29ab4cab121","60469fdb5d1e072618c31b87aa323cadb355d516124bc7abe5765a53df1627bf","c631ecc346327084d6d9ec866852c9fb7ecc76632c374dac3b79a40a68bae7b1"],"20000000","1701f0cc","69bccef7",false],"id":null,"method":"mining.notify"}
+  parsed notify summary:
+notify:
+  job_id:        69b23e1000005c34
+  prevhash:      e51ad5fa5621c25d2acddbdf84d450603f465ea30000f5080000000000000000
+  coinb1 bytes:  58
+  coinb2 bytes:  108
+  branches:      7
+  version:       20000000
+  nbits:         1701f0cc
+  ntime:         69bccef7
+  clean_jobs:    false
+  first branch:  2cf3b8ed87f898203740953a940da8c0a6dfff5e6bd108c622f26a50a1658ffc
+scan result:
+  job_id: 69b23e1000005c33
+  extranonce2: 0000000000000000
+  generation: 22
+  scanned hashes: 62504960
+  shares found: 0
+  blocks found: 0
+  elapsed seconds: 17.308
+  average rate: 3611399 H/s
+  stop reason: stale
+running totals:
+  hashes: 2129969152
+  shares found: 0
+  blocks found: 0
+  shares accepted: 0
+  shares rejected: 0
+mining chunk:
+  generation: 23
+  job_id: 69b23e1000005c34
+  extranonce2: 0000000000000000
+  nonce range: [0, 4294967295]
+  SHARE HIT generation=23 nonce=2703163
+    hash (display, BE):  00000000a78c11e64506ae3bf6b2bdbb229f450f9e3a77ca30103e422dfeb68b
+    hash (raw bytes):    8bb6fe2d423e1030ca773a9e0f459f22bbbdb2f63bae0645e6118ca700000000
+    share target:        00000000ffff0000000000000000000000000000000000000000000000000000
+    network target:      00000000000000000001f0cc0000000000000000000000000000000000000000
+    meets share target:  true
+    meets network target: false
+    coinbase hex:        01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff3503405d0e0004f7cebc6904d997a028103f3eb2690000000000000000000000000a636b706f6f6c0d2f42697441786520427272722fffffffff02288aa11200000000160014f42e1a5f41c23247de0022aca1b069ca3e43e0bc0000000000000000266a24aa21a9ed7f45ecf1c44f416bda0266b14e8f3e6c553963a34bee620a6d34656dee710bd000000000
+    coinbase hash (BE):  b035285beef588f8a77909513a6ada0acb02044c76705231b49996f122243d39
+    merkle root (BE):    0f3f035de76c11fbd4597e034be737d6ff09432e036dcb24e93c4c5be5a0ef70
+  share submission: accepted
+    generation: 23
+    job_id: 69b23e1000005c34
+    extranonce2: 0000000000000000
+    ntime: 69bccef7
+    nonce: 2703163
+    nonce_hex: 00293f3b
+    raw request:  {"id":4,"method":"mining.submit","params":["bc1q7shp5h6pcgey0hsqy2k2rvrfegly8c9uaxrtfx.cpu-miner","69b23e1000005c34","0000000000000000","69bccef7","00293f3b"]}
+    raw response: {"result":true,"error":null,"id":4}
+running totals:
+  hashes: 2129969152
+  shares found: 1
+  blocks found: 0
+  shares accepted: 1
+  shares rejected: 0
+SIGINT received; requesting graceful shutdown                                   
