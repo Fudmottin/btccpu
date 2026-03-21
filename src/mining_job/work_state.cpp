@@ -101,7 +101,6 @@ WorkState make_work_state(const MiningJob& job,
    work.job = job;
    work.subscription = subscription;
    work.extranonce2_counter = extranonce2_counter;
-   work.nonce = 0U;
 
    rebuild_derived_state(work);
    reset_nonce(work);
@@ -121,7 +120,6 @@ void advance_extranonce2(WorkState& work) {
    }
 
    ++work.extranonce2_counter;
-   work.nonce = 0U;
    rebuild_derived_state(work);
    reset_nonce(work);
 }
