@@ -158,6 +158,10 @@ The client SHALL send a JSON-RPC request whose method is `mining.authorize` and 
 [workername, password]
 ```
 
+```
+{"id":2,"method":"mining.authorize","params":["workername","password"]}
+```
+
 Where:
 
 * `workername` is a JSON string
@@ -181,6 +185,10 @@ The server SHALL send:
 
 ```text
 [difficulty]
+```
+
+```json
+{"id":null,"method":"mining.set_difficulty","params":[1]}
 ```
 
 Where:
@@ -209,6 +217,10 @@ The server SHALL send `mining.notify` with parameters of the form:
   ntime,
   clean_jobs
 ]
+```
+
+```json
+{"id":null,"method":"mining.notify","params":["job-id","prevhashhex","coinbase1hex","coinbase2hex",["merkle1hex","merkle2hex"],"20000000","1d00ffff","65f2c2b0",true]}
 ```
 
 #### Field definitions
@@ -259,6 +271,10 @@ Where:
 * `ntime` is an 8-hex-character string representing 4 bytes
 * `nonce` is an 8-hex-character string representing 4 bytes
 * `version_mask`, if present, is a hex string representing a 32-bit value
+
+```json
+{"id":3,"method":"mining.submit","params":["workername","job-id","00000000","65f2c2b0","00000001"]}
+```
 
 For ckpool-compatible operation:
 
@@ -623,4 +639,6 @@ This specification does not define:
 - Bitcoin consensus rules
 
 ---
+
+<p align="center"><em>This document was created with an LLM. You can tell, can't you?</em></p>
 
