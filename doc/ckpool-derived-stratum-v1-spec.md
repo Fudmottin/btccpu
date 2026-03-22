@@ -261,7 +261,6 @@ A client SHALL NOT assume that `prevhash` is in Bitcoin RPC display order or dir
 - `extranonce2` is provided by the client
 - `extranonce2` SHALL decode to exactly `extranonce2_size` bytes
 
-
 ---
 ## 8. Byte-Order and Reconstruction Rules
 
@@ -437,17 +436,42 @@ The proof-of-work hash SHALL be:
 
 ## 9. Share Submission Validation
 
-### 9.1 extranonce2
+### 9.1 Binding to job state
 
-Length MUST match extranonce2_size
+A submitted share SHALL be evaluated against:
+
+- the job identified by `job_id`
+- the session state associated with the submitting client
+
+That evaluation SHALL include:
+
+- notify-derived job data
+- `extranonce1` assigned to the session
+- submitted `extranonce2`
+- submitted `ntime`
+- submitted `nonce`
+- submitted `version_mask`, if present and supported
 
 ---
 
-### 9.2 ntime validity
+### 9.2 Field validity
+
+The following conditions SHALL be satisfied:
+
+- `extranonce2` SHALL decode to exactly `extranonce2_size` bytes
+- `ntime` SHALL be valid hex and parse as a 32-bit unsigned integer
+- `nonce` SHALL be valid hex and decode to exactly 4 bytes
+
+A share SHALL be rejected if any of these conditions fail.
+
+---
+
+### 9.3 ntime validity
 
 Let:
-- job_ntime = uint32 parsed from notify ntime
-- submitted_ntime = uint32 parsed from submit ntime
+
+- `job_ntime` = uint32 parsed from notify `ntime`
+- `submitted_ntime` = uint32 parsed from submit `ntime`
 
 A share SHALL be rejected unless:
 
@@ -457,12 +481,18 @@ The comparison SHALL be performed on 32-bit unsigned integers.
 
 ---
 
-### 9.3 Hash validation
+### 9.4 Share hash validation
 
-A share is valid if:
+The server SHALL:
 
-dSHA256(header) <= target
+1. reconstruct the candidate header according to Section 8
+2. compute:
 
+   share_hash = dSHA256(candidate_header)
+
+A share SHALL be accepted only if `share_hash` satisfies the server's active share target.
+
+A share MAY also satisfy the full block target. Block-solution handling is distinct from ordinary share acceptance.
 ---
 
 ## 10. Error Handling
