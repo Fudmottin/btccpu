@@ -1,6 +1,32 @@
 # ckpool-derived Stratum V1 Specification
 
+
+## Abstract
+
+This document specifies a ckpool-compatible profile of the Stratum V1 mining protocol.
+
+Stratum V1 does not have a single canonical, formally standardized specification. Its behavior has historically emerged from implementation practice and informal documentation.
+
+This document defines a precise, byte-level and message-level specification sufficient to implement interoperable miners and pools compatible with ckpool behavior.
+
 ## 1. Scope
+
+### 1.1 Scope clarification
+
+This document specifies a ckpool-derived subset of Stratum V1 sufficient for practical interoperability.
+
+The following methods are defined:
+
+- `mining.subscribe`
+- `mining.authorize`
+- `mining.set_difficulty`
+- `mining.notify`
+- `mining.submit`
+
+Other Stratum V1 methods and extensions are out of scope unless explicitly specified.
+
+This document does not claim to define all historical or variant Stratum V1 behaviors.
+
 
 This document specifies the Stratum V1 mining protocol sufficient to implement interoperable clients and servers.
 
@@ -532,6 +558,20 @@ For each submitted share, the server SHALL:
 ---
 
 ## 12. Conformance
+
+---
+
+## 13. References
+
+- Bitcoin Wiki — Stratum mining protocol  
+  https://en.bitcoin.it/wiki/Stratum_mining_protocol
+
+- BIP 310 — Stratum protocol extensions  
+  https://en.bitcoin.it/wiki/BIP_0310
+
+- ckpool source code  
+  https://github.com/ckolivas/ckpool
+
 
 A compliant implementation SHALL:
 
