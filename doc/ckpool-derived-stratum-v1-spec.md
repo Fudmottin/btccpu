@@ -499,24 +499,36 @@ A share MAY also satisfy the full block target. Block-solution handling is disti
 
 ### 10.1 Invalid share
 
-A share MAY be rejected for:
+A submitted share MAY be rejected for reasons including:
 
-- invalid format
-- invalid extranonce length
-- invalid ntime
-- insufficient difficulty
-- stale job
+- invalid JSON or parameter structure
+- unknown or stale `job_id`
+- invalid `extranonce2` length
+- invalid `ntime`
+- invalid `nonce`
+- insufficient share difficulty
+- stale job state
+
+This specification does not define a universal Stratum V1 error taxonomy.
 
 ---
 
 ## 11. Acceptance Behavior
 
-The server SHALL:
+For each submitted share, the server SHALL:
 
-1. Reconstruct the header
-2. Compute dSHA256
-3. Compare against target
-4. Accept or reject accordingly
+1. resolve the referenced job and session state
+2. reconstruct the coinbase transaction
+3. reconstruct the merkle root
+4. construct the candidate header according to Section 8
+5. compute the proof-of-work hash:
+
+   share_hash = dSHA256(candidate_header)
+
+6. compare `share_hash` against the active share target
+7. determine separately whether the candidate also satisfies the full block target
+8. accept or reject the share accordingly
+
 
 ---
 
