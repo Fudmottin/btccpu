@@ -529,7 +529,6 @@ For each submitted share, the server SHALL:
 7. determine separately whether the candidate also satisfies the full block target
 8. accept or reject the share accordingly
 
-
 ---
 
 ## 12. Conformance
