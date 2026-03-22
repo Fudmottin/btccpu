@@ -228,7 +228,6 @@ For ckpool-compatible operation:
 
 * `extranonce2` SHALL decode to exactly `extranonce2_size` bytes
 
-The order of elements in `merkle_branch` SHALL be preserved exactly as received.
 * `ntime` SHALL be valid hex and parse as a 32-bit unsigned integer
 * `nonce` SHALL be valid hex and decode to 4 bytes
 
@@ -262,6 +261,18 @@ A client SHALL NOT assume that `prevhash` is in Bitcoin RPC display order or dir
 - `extranonce2` is provided by the client
 - `extranonce2` SHALL decode to exactly `extranonce2_size` bytes
 
+
+---
+## 8. Byte-Order and Reconstruction Rules
+
+### 8.0 Representation domains
+
+The protocol operates across multiple distinct representations:
+
+1. JSON hex string representation (wire format)
+2. Decoded byte sequence (post-hex decoding)
+3. Intermediate header representation (pre-final transform)
+4. Hash input representation (post-final transform)
 
 These representations SHALL NOT be treated as interchangeable.
 
