@@ -118,6 +118,12 @@ All binary values SHALL be encoded as hex strings.
 
 The client SHALL send a JSON-RPC request whose method is `mining.subscribe`.
 
+A minimal request has the form:
+
+```json
+{"id":1,"method":"mining.subscribe","params":[]}
+```
+
 This specification does not require any particular parameter list for the request. A server MAY accept zero or more implementation-specific parameters consistent with common Stratum V1 practice.
 
 #### Response
@@ -126,6 +132,10 @@ The response `result` SHALL be a JSON array of the form:
 
 ```text
 [subscriptions, extranonce1, extranonce2_size]
+```
+
+```json
+{"id":1,"result":[[["mining.notify","subscription-id"]],"abcdef01",4],"error":null}
 ```
 
 Where:
@@ -519,6 +529,7 @@ The server SHALL:
 A share SHALL be accepted only if `share_hash` satisfies the server's active share target.
 
 A share MAY also satisfy the full block target. Block-solution handling is distinct from ordinary share acceptance.
+
 ---
 
 ## 10. Error Handling
@@ -559,8 +570,14 @@ For each submitted share, the server SHALL:
 
 ## 12. Conformance
 
----
 
+A compliant implementation SHALL:
+
+- Follow all reconstruction rules exactly
+- Respect byte-order transformations
+- Enforce validation constraints
+
+---
 ## 13. References
 
 - Bitcoin Wiki — Stratum mining protocol  
@@ -570,18 +587,12 @@ For each submitted share, the server SHALL:
   https://en.bitcoin.it/wiki/BIP_0310
 
 - ckpool source code  
-  https://github.com/ckolivas/ckpool
+  https://bitbucket.org/ckolivas/ckpool/src/master/
 
-
-A compliant implementation SHALL:
-
-- Follow all reconstruction rules exactly
-- Respect byte-order transformations
-- Enforce validation constraints
 
 ---
 
-## 13. ckpool Compatibility Notes
+## 14. ckpool Compatibility Notes
 
 The following behaviors are derived from ckpool:
 
@@ -592,7 +603,7 @@ The following behaviors are derived from ckpool:
 
 ---
 
-## 14. Open Ambiguities
+## 15. Open Ambiguities
 
 The following remain implementation-defined in the wider Stratum V1 ecosystem:
 
@@ -602,7 +613,7 @@ The following remain implementation-defined in the wider Stratum V1 ecosystem:
 
 ---
 
-## 15. Non-Goals
+## 16. Non-Goals
 
 This specification does not define:
 
