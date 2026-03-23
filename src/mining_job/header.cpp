@@ -72,11 +72,11 @@ make_sha_input_header_bytes(std::uint32_t version, const HashBytes& prevhash,
    return header;
 }
 
-std::string header_hex(const HeaderBytes& header) {
+std::string header_sha_input_hex(const HeaderBytes& header) {
    return bytes_to_hex(header);
 }
 
-HeaderTemplate make_header_template(std::uint32_t version,
+HeaderTemplate make_sha_header_template(std::uint32_t version,
                                     const HashBytes& prevhash,
                                     const HashBytes& merkle_root,
                                     std::uint32_t ntime, std::uint32_t nbits,

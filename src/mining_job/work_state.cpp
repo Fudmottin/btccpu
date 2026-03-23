@@ -11,6 +11,7 @@
 #include "mining_job/merkle.hpp"
 #include "mining_job/share.hpp"
 #include "mining_job/work_state.hpp"
+#include "util/endian.hpp"
 #include "util/hex.hpp"
 
 namespace cpu_miner {
@@ -27,13 +28,6 @@ std::array<std::uint8_t, 32> hash32_from_hex(std::string_view hex) {
       out[i] = bytes[i];
    }
    return out;
-}
-
-void swap_bytes_in_each_u32(std::span<std::uint8_t, 32> bytes) {
-   for (std::size_t i = 0; i < bytes.size(); i += 4U) {
-      std::swap(bytes[i + 0], bytes[i + 3]);
-      std::swap(bytes[i + 1], bytes[i + 2]);
-   }
 }
 
 std::uint64_t max_extranonce2_value(std::size_t size_bytes) {
@@ -64,18 +58,19 @@ void rebuild_derived_state(WorkState& work) {
    work.merkle_root_raw_hex =
       merkle_root_raw_hex(work.coinbase.coinbase_hash, work.job.merkle_branch);
 
-   work.prevhash = hash32_from_hex(work.job.prevhash);
-   work.merkle_root = hash32_from_hex(work.merkle_root_raw_hex);
+   work.prevhash_sha_input = hash32_from_hex(work.job.prevhash);
+   work.merkle_root_sha_input = hash32_from_hex(work.merkle_root_raw_hex);
 
-   swap_bytes_in_each_u32(std::span<std::uint8_t, 32>(work.prevhash));
+   cpu_miner::util::byteswap_each_u32(work.prevhash_sha_input);
 
    const std::uint32_t version = u32_from_hex_be(work.job.version);
    const std::uint32_t ntime = u32_from_hex_be(work.job.ntime);
    const std::uint32_t nbits = u32_from_hex_be(work.job.nbits);
 
    work.header_template =
-      make_header_template(version, work.prevhash, work.merkle_root, ntime,
-                           nbits, work.nonce);
+      make_sha_header_template(version, work.prevhash_sha_input,
+                               work.merkle_root_sha_input, ntime, nbits,
+                               work.nonce);
 }
 
 } // namespace

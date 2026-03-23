@@ -92,11 +92,11 @@ void print_startup_sanity(const cpu_miner::WorkState& work) {
    const std::uint32_t nonce0 = 0U;
 
    const auto header =
-      cpu_miner::make_sha_input_header_bytes(version, work.prevhash,
-                                             work.merkle_root, ntime, nbits,
-                                             nonce0);
+      cpu_miner::make_sha_input_header_bytes(version, work.prevhash_sha_input,
+                                             work.merkle_root_sha_input, ntime,
+                                             nbits, nonce0);
 
-   const std::string header_hex = cpu_miner::header_hex(header);
+   const std::string header_hex = cpu_miner::header_sha_input_hex(header);
    const auto header_hash_words = cpu_miner::sha256::dbl_sha256_words(header);
    const auto header_hash_bytes =
       cpu_miner::sha256::digest_words_to_bytes_be(header_hash_words);

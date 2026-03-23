@@ -23,8 +23,8 @@ struct WorkState {
    CoinbaseBuild coinbase;
    std::string merkle_root_raw_hex;
 
-   HashBytes prevhash{};
-   HashBytes merkle_root{};
+   HashBytes prevhash_sha_input{};
+   HashBytes merkle_root_sha_input{};
    HeaderTemplate header_template{};
 
    [[nodiscard]] bool empty() const noexcept;

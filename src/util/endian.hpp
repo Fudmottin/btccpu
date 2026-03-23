@@ -1,10 +1,12 @@
-// src/uitl/endian.hpp
+// src/util/endian.hpp
 
 #ifndef CPU_MINER_UTIL_ENDIAN_HPP
 #define CPU_MINER_UTIL_ENDIAN_HPP
 
 #include <bit>
 #include <cstdint>
+#include <span>
+#include <utility>
 
 namespace cpu_miner::util {
 
@@ -69,6 +71,13 @@ header_le32_to_sha_word(std::uint32_t v) noexcept {
 
 [[nodiscard]] constexpr std::uint64_t be64_to_le64(std::uint64_t v) noexcept {
    return bswap64(v);
+}
+
+inline void byteswap_each_u32(std::span<std::uint8_t, 32> bytes) noexcept {
+   for (std::size_t i = 0; i < bytes.size(); i += 4U) {
+      std::swap(bytes[i + 0], bytes[i + 3]);
+      std::swap(bytes[i + 1], bytes[i + 2]);
+   }
 }
 
 } // namespace cpu_miner::util

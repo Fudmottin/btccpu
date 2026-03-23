@@ -213,7 +213,7 @@ void print_variant(const VariantResult& r) {
    std::cout << "  merkle root in header: "
              << bytes_to_hex_forward(r.merkle_root_for_header) << '\n';
 
-   std::cout << "  header hex:            " << cpu_miner::header_hex(r.header)
+   std::cout << "  header hex:            " << cpu_miner::header_sha_input_hex(r.header)
              << '\n';
 
    std::cout << "  hash raw bytes:        "
