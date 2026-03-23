@@ -2,50 +2,69 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build}"
-BUILD_TYPE="${BUILD_TYPE:-Debug}"
-TARGET="${TARGET:-cpu_miner}"
-JOBS="${JOBS:-}"
-NATIVE_OPT="${NATIVE_OPT:-OFF}"
+BUILD_DIR="$ROOT_DIR/build"
+TARGET="cpu_miner"
 
 usage() {
    cat <<EOF
 Usage:
-  $(basename "$0") build
-  $(basename "$0") run <host> <port> <user> <password>
+  $(basename "$0")
+  $(basename "$0") debug
+  $(basename "$0") tests
+  $(basename "$0") release
   $(basename "$0") rebuild
   $(basename "$0") clean
+  $(basename "$0") run <host> <port> <user> <password>
 
-Environment overrides:
-  BUILD_DIR    default: $BUILD_DIR
-  BUILD_TYPE   default: $BUILD_TYPE
-  TARGET       default: $TARGET
-  JOBS         default: auto / tool default
-  NATIVE_OPT   default: $NATIVE_OPT   (ON or OFF)
+Modes:
+  (no args)   Configure Debug, build everything, run tests
+  debug       Configure Debug, build everything, run tests
+  tests       Configure Debug, build tests, run tests
+  release     Configure Release, build everything, run tests
+  rebuild     Remove build directory, then do default debug build
+  clean       Remove build directory
+  run         Run $TARGET, building a Debug tree first if needed
 
-Examples:
-  BUILD_TYPE=Release $(basename "$0") build
-  BUILD_TYPE=Release NATIVE_OPT=ON $(basename "$0") build
-  $(basename "$0") run 192.168.0.104 3333 youruser x
+Notes:
+  - Tests are enabled for all configure modes here.
+  - Release enables native optimization.
 EOF
 }
 
 configure() {
+   local build_type="$1"
+   local native_opt="$2"
+
+   echo "==> Configuring"
+   echo "    build dir : $BUILD_DIR"
+   echo "    type      : $build_type"
+   echo "    native opt: $native_opt"
+
    cmake -S "$ROOT_DIR" -B "$BUILD_DIR" \
-      -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
-      -DCPU_MINER_ENABLE_NATIVE_OPTIMIZATION="$NATIVE_OPT"
+      -DCMAKE_BUILD_TYPE="$build_type" \
+      -DCPU_MINER_ENABLE_TESTS=ON \
+      -DCPU_MINER_ENABLE_NATIVE_OPTIMIZATION="$native_opt"
 }
 
-build() {
-   configure
-   if [[ -n "$JOBS" ]]; then
-      cmake --build "$BUILD_DIR" --target "$TARGET" --parallel "$JOBS"
-   else
-      cmake --build "$BUILD_DIR" --target "$TARGET"
-   fi
+build_target() {
+   local target="$1"
+
+   echo "==> Building target: $target"
+   cmake --build "$BUILD_DIR" --target "$target"
+}
+
+build_all() {
+   echo "==> Building all targets"
+   cmake --build "$BUILD_DIR"
+}
+
+run_tests() {
+   echo "==> Running tests"
+   ctest --test-dir "$BUILD_DIR" --output-on-failure
 }
 
 clean() {
+   echo "==> Removing $BUILD_DIR"
    rm -rf "$BUILD_DIR"
 }
 
@@ -63,23 +82,48 @@ run_miner() {
 
    if [[ ! -x "$exe" ]]; then
       echo "Executable not found: $exe"
-      echo "Building first..."
-      build
+      echo "Configuring Debug build first..."
+      configure "Debug" "OFF"
+      build_target "$TARGET"
    fi
 
    exec "$exe" "$host" "$port" "$user" "$password"
 }
 
+do_debug() {
+   configure "Debug" "OFF"
+   build_all
+   run_tests
+}
+
+do_tests() {
+   configure "Debug" "OFF"
+   build_target "cpu_miner_tests"
+   run_tests
+}
+
+do_release() {
+   configure "Release" "ON"
+   build_all
+   run_tests
+}
+
 main() {
-   local cmd="${1:-build}"
+   local cmd="${1:-debug}"
 
    case "$cmd" in
-      build)
-         build
+      debug)
+         do_debug
+         ;;
+      tests)
+         do_tests
+         ;;
+      release)
+         do_release
          ;;
       rebuild)
          clean
-         build
+         do_debug
          ;;
       clean)
          clean
@@ -88,7 +132,11 @@ main() {
          shift
          run_miner "$@"
          ;;
+      -h|--help|help)
+         usage
+         ;;
       *)
+         echo "Unknown command: $cmd" >&2
          usage
          exit 1
          ;;
