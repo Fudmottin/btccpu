@@ -84,6 +84,7 @@ add_library(cpu_miner_mining_job
    src/mining_job/header.cpp
    src/mining_job/work_state.cpp
    src/mining_job/scan.cpp
+   src/mining_job/cpu_backend.cpp
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
@@ -257,6 +258,7 @@ if(CPU_MINER_ENABLE_TESTS)
       tests/test_header.cpp
       tests/test_work_state.cpp
       tests/test_regression_share.cpp
+      tests/test_backend.cpp
    )
 
    target_include_directories(cpu_miner_tests
