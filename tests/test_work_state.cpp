@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "mining_job/target.hpp"
 #include "mining_job/work_state.hpp"
 #include "util/hex.hpp"
 
@@ -45,38 +46,55 @@ cpu_miner::SubscriptionContext make_fixture_subscription() {
 
 } // namespace
 
-TEST_CASE("work_state helper functions are pure and explicit", "[work_state]") {
+TEST_CASE("prepared work captures backend-neutral mining inputs",
+          "[work_state]") {
    using namespace cpu_miner;
 
    const auto job = make_fixture_job();
    const auto sub = make_fixture_subscription();
-   const auto coinbase = build_coinbase(job, sub, "0000000000000000");
+   const auto prepared = prepare_work(job, sub, 0U);
 
-   REQUIRE(compute_merkle_root_raw_hex(coinbase, job) ==
+   REQUIRE(prepared.extranonce2_hex == "0000000000000000");
+   REQUIRE(prepared.coinbase.extranonce2_hex == "0000000000000000");
+   REQUIRE(prepared.merkle_root_raw_hex ==
            "99da7a25d35032b52ed95376d944b4883bfbb8cec21775dd841f827c5ff10fec");
-
-   REQUIRE(bytes_to_hex(prevhash_sha_input_from_job(job)) ==
+   REQUIRE(bytes_to_hex(prepared.prevhash_sha_input) ==
            "fb03a060e68d5436225d39ed24a60873c5d1b088d76901000000000000000000");
-
-   REQUIRE(
-      bytes_to_hex(merkle_root_sha_input_from_hex(
-         "99da7a25d35032b52ed95376d944b4883bfbb8cec21775dd841f827c5ff10fec")) ==
-      "99da7a25d35032b52ed95376d944b4883bfbb8cec21775dd841f827c5ff10fec");
+   REQUIRE(bytes_to_hex(prepared.merkle_root_sha_input) ==
+           "99da7a25d35032b52ed95376d944b4883bfbb8cec21775dd841f827c5ff10fec");
 }
 
-TEST_CASE("work_state encodes byte-order intent explicitly", "[work_state]") {
+TEST_CASE("prepared work can hash a nonce without runtime orchestration",
+          "[work_state]") {
    using namespace cpu_miner;
 
    const auto job = make_fixture_job();
    const auto sub = make_fixture_subscription();
-   const auto work = make_work_state(job, sub, 0U);
+   const auto prepared = prepare_work(job, sub, 0U);
 
-   REQUIRE(work.coinbase.extranonce2_hex == "0000000000000000");
-   REQUIRE(work.merkle_root_raw_hex ==
-           "99da7a25d35032b52ed95376d944b4883bfbb8cec21775dd841f827c5ff10fec");
+   const auto hash =
+      hash_prepared_work_nonce(prepared, u32_from_hex_be("0525050b"));
 
+   REQUIRE(bytes_to_hex(hash) ==
+           "93dc89148fd563d2b8f734472172e4445b9ea5a5d1b25dc855124e76031f88ab");
+
+   const auto share_target = share_target_from_difficulty(std::uint64_t{1});
+   REQUIRE_FALSE(hash_meets_target(hash, share_target));
+}
+
+TEST_CASE("work_state remains a thin convenience wrapper", "[work_state]") {
+   using namespace cpu_miner;
+
+   const auto job = make_fixture_job();
+   const auto sub = make_fixture_subscription();
+
+   const auto prepared = prepare_work(job, sub, 0U);
+   const auto work = work_state_from_prepared(prepared, 0U);
+
+   REQUIRE(work.coinbase.extranonce2_hex == prepared.coinbase.extranonce2_hex);
+   REQUIRE(work.merkle_root_raw_hex == prepared.merkle_root_raw_hex);
    REQUIRE(bytes_to_hex(work.prevhash_sha_input) ==
-           "fb03a060e68d5436225d39ed24a60873c5d1b088d76901000000000000000000");
+           bytes_to_hex(prepared.prevhash_sha_input));
    REQUIRE(bytes_to_hex(work.merkle_root_sha_input) ==
-           "99da7a25d35032b52ed95376d944b4883bfbb8cec21775dd841f827c5ff10fec");
+           bytes_to_hex(prepared.merkle_root_sha_input));
 }

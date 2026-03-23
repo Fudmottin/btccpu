@@ -11,8 +11,24 @@
 #include "mining_job/header.hpp"
 #include "mining_job/job.hpp"
 #include "mining_job/share.hpp"
+#include "sha256/sha256.hpp"
 
 namespace cpu_miner {
+
+struct PreparedWork {
+   MiningJob job;
+   SubscriptionContext subscription;
+
+   std::uint64_t extranonce2_counter{};
+   std::string extranonce2_hex;
+
+   CoinbaseBuild coinbase;
+   std::string merkle_root_raw_hex;
+
+   HashBytes prevhash_sha_input{};
+   HashBytes merkle_root_sha_input{};
+   HeaderTemplate header_template{};
+};
 
 struct WorkState {
    MiningJob job;
@@ -43,6 +59,16 @@ merkle_root_sha_input_from_hex(std::string_view merkle_root_raw_hex);
 [[nodiscard]] HeaderTemplate make_work_header_template(
    const MiningJob& job, const HashBytes& prevhash_sha_input,
    const HashBytes& merkle_root_sha_input, std::uint32_t nonce);
+
+[[nodiscard]] PreparedWork prepare_work(const MiningJob& job,
+                                        const SubscriptionContext& subscription,
+                                        std::uint64_t extranonce2_counter = 0);
+
+[[nodiscard]] sha256::DigestBytes
+hash_prepared_work_nonce(const PreparedWork& prepared, std::uint32_t nonce);
+
+[[nodiscard]] WorkState work_state_from_prepared(const PreparedWork& prepared,
+                                                 std::uint32_t nonce = 0U);
 
 [[nodiscard]] WorkState make_work_state(const MiningJob& job,
                                         const SubscriptionContext& subscription,

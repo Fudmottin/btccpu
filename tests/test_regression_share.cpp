@@ -132,34 +132,33 @@ std::string reverse_hex_bytes(const std::string& hex) {
 void check_fixture(const Fixture& f) {
    using namespace cpu_miner;
 
-   auto work = make_work_state(f.job, f.subscription, 0U);
-   work = with_nonce(work, u32_from_hex_be(f.nonce_hex));
+   const auto prepared = prepare_work(f.job, f.subscription, 0U);
+   const auto work =
+      work_state_from_prepared(prepared, u32_from_hex_be(f.nonce_hex));
+   const auto header = make_sha_input_header_bytes(
+      u32_from_hex_be(f.job.version), prepared.prevhash_sha_input,
+      prepared.merkle_root_sha_input, u32_from_hex_be(f.job.ntime),
+      u32_from_hex_be(f.job.nbits), u32_from_hex_be(f.nonce_hex));
+   const auto hash =
+      hash_prepared_work_nonce(prepared, u32_from_hex_be(f.nonce_hex));
 
-   const auto header =
-      make_sha_input_header_bytes(u32_from_hex_be(f.job.version),
-                                  work.prevhash_sha_input,
-                                  work.merkle_root_sha_input,
-                                  u32_from_hex_be(f.job.ntime),
-                                  u32_from_hex_be(f.job.nbits), work.nonce);
-
-   const auto hash_words = hash_header_template(work.header_template);
-   const auto hash_bytes = sha256::digest_words_to_bytes_be(hash_words);
-
-   REQUIRE(work.coinbase.extranonce2_hex == f.extranonce2_hex);
-   REQUIRE(bytes_to_hex(work.coinbase.coinbase_hash) ==
+   REQUIRE(prepared.extranonce2_hex == f.extranonce2_hex);
+   REQUIRE(bytes_to_hex(prepared.coinbase.coinbase_hash) ==
            f.expected_coinbase_hash_be);
-   REQUIRE(work.merkle_root_raw_hex == f.expected_merkle_root_be);
+   REQUIRE(prepared.merkle_root_raw_hex == f.expected_merkle_root_be);
    REQUIRE(header_sha_input_hex(header) == f.expected_header_sha_input_hex);
-   REQUIRE(bytes_to_hex(hash_bytes) == f.expected_hash_raw_bytes);
+   REQUIRE(bytes_to_hex(hash) == f.expected_hash_raw_bytes);
 
    const auto share_target = share_target_from_difficulty(std::uint64_t{1});
    const auto network_target =
       expand_compact_target(u32_from_hex_be(f.job.nbits));
 
-   REQUIRE(hash_meets_target(hash_bytes, share_target) ==
+   REQUIRE(hash_meets_target(hash, share_target) ==
            f.expected_meets_share_target);
-   REQUIRE(hash_meets_target(hash_bytes, network_target) ==
+   REQUIRE(hash_meets_target(hash, network_target) ==
            f.expected_meets_network_target);
+
+   REQUIRE(work.coinbase.extranonce2_hex == prepared.coinbase.extranonce2_hex);
 }
 
 } // namespace
