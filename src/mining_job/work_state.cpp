@@ -1,34 +1,20 @@
 // src/mining_job/work_state.cpp
 
-#include <algorithm>
-#include <array>
+#include "mining_job/work_state.hpp"
+
 #include <cstdint>
 #include <limits>
-#include <span>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 
 #include "mining_job/merkle.hpp"
 #include "mining_job/share.hpp"
-#include "mining_job/work_state.hpp"
 #include "util/endian.hpp"
 #include "util/hex.hpp"
 
 namespace cpu_miner {
 namespace {
-
-std::array<std::uint8_t, 32> hash32_from_hex(std::string_view hex) {
-   const auto bytes = hex_to_bytes(hex);
-   if (bytes.size() != 32U) {
-      throw std::invalid_argument("expected 32-byte hash hex");
-   }
-
-   std::array<std::uint8_t, 32> out{};
-   for (std::size_t i = 0; i < out.size(); ++i) {
-      out[i] = bytes[i];
-   }
-   return out;
-}
 
 std::uint64_t max_extranonce2_value(std::size_t size_bytes) {
    if (size_bytes > 8U) {
@@ -54,26 +40,44 @@ void rebuild_derived_state(WorkState& work) {
                                work.subscription.extranonce2_size);
 
    work.coinbase = build_coinbase(work.job, work.subscription, extranonce2);
-
    work.merkle_root_raw_hex =
-      merkle_root_raw_hex(work.coinbase.coinbase_hash, work.job.merkle_branch);
-
-   work.prevhash_sha_input = hash32_from_hex(work.job.prevhash);
-   work.merkle_root_sha_input = hash32_from_hex(work.merkle_root_raw_hex);
-
-   cpu_miner::util::byteswap_each_u32(work.prevhash_sha_input);
-
-   const std::uint32_t version = u32_from_hex_be(work.job.version);
-   const std::uint32_t ntime = u32_from_hex_be(work.job.ntime);
-   const std::uint32_t nbits = u32_from_hex_be(work.job.nbits);
-
+      compute_merkle_root_raw_hex(work.coinbase, work.job);
+   work.prevhash_sha_input = prevhash_sha_input_from_job(work.job);
+   work.merkle_root_sha_input =
+      merkle_root_sha_input_from_hex(work.merkle_root_raw_hex);
    work.header_template =
-      make_sha_header_template(version, work.prevhash_sha_input,
-                               work.merkle_root_sha_input, ntime, nbits,
-                               work.nonce);
+      make_work_header_template(work.job, work.prevhash_sha_input,
+                                work.merkle_root_sha_input, work.nonce);
 }
 
 } // namespace
+
+std::string compute_merkle_root_raw_hex(const CoinbaseBuild& coinbase,
+                                        const MiningJob& job) {
+   return merkle_root_raw_hex(coinbase.coinbase_hash, job.merkle_branch);
+}
+
+HashBytes prevhash_sha_input_from_job(const MiningJob& job) {
+   auto prevhash = hex_to_array_32(job.prevhash);
+   cpu_miner::util::byteswap_each_u32(prevhash);
+   return prevhash;
+}
+
+HashBytes merkle_root_sha_input_from_hex(std::string_view merkle_root_raw_hex) {
+   return hex_to_array_32(merkle_root_raw_hex);
+}
+
+HeaderTemplate make_work_header_template(const MiningJob& job,
+                                         const HashBytes& prevhash_sha_input,
+                                         const HashBytes& merkle_root_sha_input,
+                                         std::uint32_t nonce) {
+   const std::uint32_t version = u32_from_hex_be(job.version);
+   const std::uint32_t ntime = u32_from_hex_be(job.ntime);
+   const std::uint32_t nbits = u32_from_hex_be(job.nbits);
+
+   return make_sha_header_template(version, prevhash_sha_input,
+                                   merkle_root_sha_input, ntime, nbits, nonce);
+}
 
 ShareSubmission make_share_submission(const WorkState& work) {
    return ShareSubmission{
@@ -127,4 +131,3 @@ WorkState with_nonce(const WorkState& work, std::uint32_t nonce) {
 }
 
 } // namespace cpu_miner
-

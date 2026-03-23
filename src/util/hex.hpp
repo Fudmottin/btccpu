@@ -3,6 +3,7 @@
 #ifndef CPU_MINER_UTIL_HEX_HPP
 #define CPU_MINER_UTIL_HEX_HPP
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -21,6 +22,8 @@ namespace cpu_miner {
                                           std::size_t size_bytes);
 
 [[nodiscard]] std::vector<std::uint8_t> hex_to_bytes(std::string_view hex);
+[[nodiscard]] std::array<std::uint8_t, 32>
+hex_to_array_32(std::string_view hex);
 [[nodiscard]] std::string bytes_to_hex(std::span<const std::uint8_t> bytes);
 [[nodiscard]] std::uint32_t u32_from_hex_be(std::string_view hex);
 [[nodiscard]] std::uint32_t u32_from_hex_le(std::string_view hex);
@@ -28,4 +31,3 @@ namespace cpu_miner {
 } // namespace cpu_miner
 
 #endif
-

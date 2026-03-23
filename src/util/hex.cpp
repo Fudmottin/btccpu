@@ -1,13 +1,14 @@
 // src/util/hex.cpp
 
+#include "util/hex.hpp"
+
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
-
-#include "util/hex.hpp"
 
 namespace cpu_miner {
 namespace {
@@ -102,6 +103,19 @@ std::vector<std::uint8_t> hex_to_bytes(std::string_view hex) {
    return out;
 }
 
+std::array<std::uint8_t, 32> hex_to_array_32(std::string_view hex) {
+   const auto bytes = hex_to_bytes(hex);
+   if (bytes.size() != 32U) {
+      throw std::invalid_argument("expected 32-byte hash hex");
+   }
+
+   std::array<std::uint8_t, 32> out{};
+   for (std::size_t i = 0; i < out.size(); ++i) {
+      out[i] = bytes[i];
+   }
+   return out;
+}
+
 std::string bytes_to_hex(std::span<const std::uint8_t> bytes) {
    std::string out;
    out.resize(bytes.size() * 2U);
@@ -153,4 +167,3 @@ std::uint32_t u32_from_hex_le(std::string_view hex) {
 }
 
 } // namespace cpu_miner
-

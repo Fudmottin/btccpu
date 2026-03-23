@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 #include "mining_job/coinbase.hpp"
 #include "mining_job/header.hpp"
@@ -30,6 +31,19 @@ struct WorkState {
    [[nodiscard]] bool empty() const noexcept;
 };
 
+[[nodiscard]] std::string
+compute_merkle_root_raw_hex(const CoinbaseBuild& coinbase,
+                            const MiningJob& job);
+
+[[nodiscard]] HashBytes prevhash_sha_input_from_job(const MiningJob& job);
+
+[[nodiscard]] HashBytes
+merkle_root_sha_input_from_hex(std::string_view merkle_root_raw_hex);
+
+[[nodiscard]] HeaderTemplate make_work_header_template(
+   const MiningJob& job, const HashBytes& prevhash_sha_input,
+   const HashBytes& merkle_root_sha_input, std::uint32_t nonce);
+
 [[nodiscard]] WorkState make_work_state(const MiningJob& job,
                                         const SubscriptionContext& subscription,
                                         std::uint64_t extranonce2_counter = 0);
@@ -44,4 +58,3 @@ void advance_extranonce2(WorkState& work);
 } // namespace cpu_miner
 
 #endif
-

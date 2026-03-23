@@ -3,10 +3,10 @@
 #include "mining_job/work_state.hpp"
 #include "util/hex.hpp"
 
-TEST_CASE("work_state encodes byte-order intent explicitly", "[work_state]") {
-   using namespace cpu_miner;
+namespace {
 
-   MiningJob job;
+cpu_miner::MiningJob make_fixture_job() {
+   cpu_miner::MiningJob job;
    job.job_id = "69b23e1000005a88";
    job.prevhash =
       "60a003fb36548de6ed395d227308a62488b0d1c5000169d70000000000000000";
@@ -33,11 +33,42 @@ TEST_CASE("work_state encodes byte-order intent explicitly", "[work_state]") {
    job.nbits = "1701f0cc";
    job.ntime = "69bc9e60";
    job.clean_jobs = false;
+   return job;
+}
 
-   SubscriptionContext sub;
+cpu_miner::SubscriptionContext make_fixture_subscription() {
+   cpu_miner::SubscriptionContext sub;
    sub.extranonce1 = "3e3eb26900000000";
    sub.extranonce2_size = 8U;
+   return sub;
+}
 
+} // namespace
+
+TEST_CASE("work_state helper functions are pure and explicit", "[work_state]") {
+   using namespace cpu_miner;
+
+   const auto job = make_fixture_job();
+   const auto sub = make_fixture_subscription();
+   const auto coinbase = build_coinbase(job, sub, "0000000000000000");
+
+   REQUIRE(compute_merkle_root_raw_hex(coinbase, job) ==
+           "99da7a25d35032b52ed95376d944b4883bfbb8cec21775dd841f827c5ff10fec");
+
+   REQUIRE(bytes_to_hex(prevhash_sha_input_from_job(job)) ==
+           "fb03a060e68d5436225d39ed24a60873c5d1b088d76901000000000000000000");
+
+   REQUIRE(
+      bytes_to_hex(merkle_root_sha_input_from_hex(
+         "99da7a25d35032b52ed95376d944b4883bfbb8cec21775dd841f827c5ff10fec")) ==
+      "99da7a25d35032b52ed95376d944b4883bfbb8cec21775dd841f827c5ff10fec");
+}
+
+TEST_CASE("work_state encodes byte-order intent explicitly", "[work_state]") {
+   using namespace cpu_miner;
+
+   const auto job = make_fixture_job();
+   const auto sub = make_fixture_subscription();
    const auto work = make_work_state(job, sub, 0U);
 
    REQUIRE(work.coinbase.extranonce2_hex == "0000000000000000");
