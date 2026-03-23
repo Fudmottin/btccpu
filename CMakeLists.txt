@@ -239,24 +239,45 @@ if(CPU_MINER_ENABLE_TESTS)
    include(CTest)
    enable_testing()
 
-   # Add Catch2 or another test framework later.
-   # Example:
-   # add_executable(cpu_miner_tests
-   #    tests/test_main.cpp
-   #    tests/test_hex.cpp
-   #    tests/test_sha256.cpp
-   #    tests/test_merkle.cpp
-   # )
-   #
-   # target_link_libraries(cpu_miner_tests
-   #    PRIVATE
-   #       cpu_miner_util
-   #       cpu_miner_sha256
-   #       cpu_miner_mining_job
-   #       cpu_miner_stratum
-   # )
-   #
-   # cpu_miner_set_warnings(cpu_miner_tests)
-   # add_test(NAME cpu_miner_tests COMMAND cpu_miner_tests)
+   include(FetchContent)
+
+   FetchContent_Declare(
+      Catch2
+      GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+      GIT_TAG v3.5.4
+   )
+
+   FetchContent_MakeAvailable(Catch2)
+
+   add_executable(cpu_miner_tests
+      tests/main.cpp
+      tests/test_hex.cpp
+      tests/test_sha256.cpp
+      tests/test_merkle.cpp
+      tests/test_header.cpp
+      tests/test_work_state.cpp
+      tests/test_regression_share.cpp
+   )
+
+   target_include_directories(cpu_miner_tests
+      PRIVATE
+         ${CMAKE_CURRENT_SOURCE_DIR}/src
+   )
+
+   target_link_libraries(cpu_miner_tests
+      PRIVATE
+         cpu_miner_util
+         cpu_miner_sha256
+         cpu_miner_mining_job
+         Catch2::Catch2WithMain
+   )
+
+   target_compile_features(cpu_miner_tests PUBLIC cxx_std_23)
+
+   cpu_miner_set_warnings(cpu_miner_tests)
+   cpu_miner_set_optimization(cpu_miner_tests)
+
+   include(Catch)
+   catch_discover_tests(cpu_miner_tests)
 endif()
 
