@@ -7,7 +7,7 @@
 // hex/octal
 //
 // Notes:
-// - This implementation relies on unsigned __int128 for fast carry/borrow and
+// - This implementation relies on uint128_native for fast carry/borrow and
 // division by uint64.
 //   Clang/GCC support it. If you need MSVC, add a _umul128/_udiv128 path.
 
@@ -31,13 +31,36 @@
 #include <type_traits>
 #include <utility>
 
-#if !defined(__SIZEOF_INT128__)
+#if defined(__SIZEOF_INT128__)
+#define CPU_MINER_HAS_INT128 1
+#else
+#define CPU_MINER_HAS_INT128 0
+#endif
+
+#if !CPU_MINER_HAS_INT128
 static_assert(
-   false,
-   "uint256 requires compiler support for unsigned __int128 (Clang/GCC).");
+   false, "uint256 requires compiler support for uint128_native (Clang/GCC).");
 #endif
 
 namespace cpu_miner::u256 {
+
+#if CPU_MINER_HAS_INT128
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpedantic"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#endif
+
+using uint128_native = unsigned __int128;
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+#endif
 
 struct uint256 final {
    using limb_type = std::uint64_t;
@@ -422,19 +445,19 @@ struct uint256 final {
  private:
    static constexpr limb_type add_carry(limb_type a, limb_type b,
                                         limb_type& carry) noexcept {
-      const unsigned __int128 sum = static_cast<unsigned __int128>(a) +
-                                    static_cast<unsigned __int128>(b) +
-                                    static_cast<unsigned __int128>(carry);
+      const uint128_native sum = static_cast<uint128_native>(a) +
+                                 static_cast<uint128_native>(b) +
+                                 static_cast<uint128_native>(carry);
       carry = static_cast<limb_type>(sum >> 64);
       return static_cast<limb_type>(sum);
    }
 
    static constexpr limb_type sub_borrow(limb_type a, limb_type b,
                                          limb_type& borrow) noexcept {
-      const unsigned __int128 aa = static_cast<unsigned __int128>(a);
-      const unsigned __int128 bb = static_cast<unsigned __int128>(b) +
-                                   static_cast<unsigned __int128>(borrow);
-      const unsigned __int128 diff = aa - bb;
+      const uint128_native aa = static_cast<uint128_native>(a);
+      const uint128_native bb =
+         static_cast<uint128_native>(b) + static_cast<uint128_native>(borrow);
+      const uint128_native diff = aa - bb;
       // If aa < bb, the top bit of the 128-bit result will be 1 due to
       // underflow in unsigned arithmetic.
       borrow = (aa < bb) ? 1u : 0u;
@@ -496,7 +519,7 @@ struct uint256 final {
    static constexpr uint256 divmod_u64(const uint256& n, limb_type d,
                                        limb_type& rem) noexcept {
       uint256 q{};
-      unsigned __int128 r = 0;
+      uint128_native r = 0;
       for (int i = limb_count - 1; i >= 0; --i) {
          r = (r << 64) | n.w[i];
          const limb_type qi = static_cast<limb_type>(r / d);
@@ -565,12 +588,12 @@ struct uint256 final {
                                       const uint256& b) noexcept {
       uint256 r{};
       for (int i = 0; i < limb_count; ++i) {
-         unsigned __int128 carry = 0;
+         uint128_native carry = 0;
          for (int j = 0; j + i < limb_count; ++j) {
-            const unsigned __int128 cur =
-               static_cast<unsigned __int128>(a.w[i]) *
-                  static_cast<unsigned __int128>(b.w[j]) +
-               static_cast<unsigned __int128>(r.w[i + j]) + carry;
+            const uint128_native cur = static_cast<uint128_native>(a.w[i]) *
+                                          static_cast<uint128_native>(b.w[j]) +
+                                       static_cast<uint128_native>(r.w[i + j]) +
+                                       carry;
             r.w[i + j] = static_cast<limb_type>(cur);
             carry = cur >> 64;
          }

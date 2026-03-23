@@ -213,8 +213,8 @@ void print_variant(const VariantResult& r) {
    std::cout << "  merkle root in header: "
              << bytes_to_hex_forward(r.merkle_root_for_header) << '\n';
 
-   std::cout << "  header hex:            " << cpu_miner::header_sha_input_hex(r.header)
-             << '\n';
+   std::cout << "  header hex:            "
+             << cpu_miner::header_sha_input_hex(r.header) << '\n';
 
    std::cout << "  hash raw bytes:        "
              << bytes_to_hex_forward(r.header_hash_raw) << '\n';
@@ -282,7 +282,8 @@ int main() {
       const std::uint32_t ntime = cpu_miner::u32_from_hex_be("69bc9e60");
       const std::uint32_t nonce = cpu_miner::u32_from_hex_be("0525050b");
 
-      const auto share_target = cpu_miner::share_target_from_difficulty(1ULL);
+      const auto share_target =
+         cpu_miner::share_target_from_difficulty(std::uint64_t{1});
       const auto network_target = cpu_miner::expand_compact_target(nbits);
 
       std::cout << "job_id: " << job_id << '\n';
