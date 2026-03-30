@@ -13,12 +13,6 @@
 
 namespace cpu_miner {
 
-struct CoordinatorResult {
-   std::uint64_t hashes_done{};
-   std::uint64_t shares_found{};
-   std::uint64_t blocks_found{};
-};
-
 using CoordinatorShareFoundCallback =
    std::function<void(const ShareSubmission&, const ShareCandidate&)>;
 
@@ -33,7 +27,7 @@ class MiningCoordinator {
 
    void on_share_found(CoordinatorShareFoundCallback cb);
 
-   [[nodiscard]] CoordinatorResult
+   [[nodiscard]] ScanResult
    scan_range(std::uint64_t nonce_begin, std::uint64_t nonce_end,
               const u256::uint256& network_target,
               const u256::uint256& share_target,

@@ -22,6 +22,8 @@
 #include <variant>
 
 #include "mining_job/coinbase.hpp"
+#include "mining_job/coordinator.hpp"
+#include "mining_job/cpu_backend.hpp"
 #include "mining_job/header.hpp"
 #include "mining_job/scan.hpp"
 #include "mining_job/target.hpp"
@@ -131,17 +133,22 @@ struct SharedWorkState {
    std::optional<PublishedWork> published;
 };
 
+struct QueuedShare {
+   cpu_miner::ShareSubmission submission;
+   cpu_miner::ShareCandidate candidate;
+};
+
 class ShareQueue {
  public:
-   void push(cpu_miner::ShareCandidate candidate) {
+   void push(QueuedShare item) {
       {
          std::lock_guard<std::mutex> lock(mutex_);
-         queue_.push(std::move(candidate));
+         queue_.push(std::move(item));
       }
       cv_.notify_one();
    }
 
-   [[nodiscard]] bool try_pop(cpu_miner::ShareCandidate& out) {
+   [[nodiscard]] bool try_pop(QueuedShare& out) {
       std::lock_guard<std::mutex> lock(mutex_);
       if (queue_.empty()) return false;
 
@@ -150,8 +157,7 @@ class ShareQueue {
       return true;
    }
 
-   [[nodiscard]] bool wait_pop_for(cpu_miner::ShareCandidate& out,
-                                   std::stop_token stop_token,
+   [[nodiscard]] bool wait_pop_for(QueuedShare& out, std::stop_token stop_token,
                                    std::chrono::milliseconds timeout) {
       std::unique_lock<std::mutex> lock(mutex_);
 
@@ -175,7 +181,7 @@ class ShareQueue {
  private:
    std::mutex mutex_;
    std::condition_variable cv_;
-   std::queue<cpu_miner::ShareCandidate> queue_;
+   std::queue<QueuedShare> queue_;
 };
 
 struct Counters {
@@ -516,12 +522,14 @@ int main(int argc, char* argv[]) {
             while (!stop_token.stop_requested()) {
                bool did_work = false;
 
-               cpu_miner::ShareCandidate candidate;
-               while (share_queue.try_pop(candidate)) {
+               QueuedShare queued;
+               while (share_queue.try_pop(queued)) {
                   did_work = true;
 
                   const std::uint64_t current_generation =
                      work_generation.load(std::memory_order_acquire);
+
+                  const auto& candidate = queued.candidate;
 
                   if (candidate.generation != current_generation) {
                      events.push(StaleShareDiscardedEvent{
@@ -533,8 +541,7 @@ int main(int argc, char* argv[]) {
                      continue;
                   }
 
-                  const auto submission =
-                     cpu_miner::make_share_submission(candidate.work);
+                  const auto& submission = queued.submission;
 
                   const auto submit_result = client.submit_share(submission);
 
@@ -574,11 +581,11 @@ int main(int argc, char* argv[]) {
                   continue;
                }
 
-               (void)share_queue.wait_pop_for(candidate, stop_token,
+               (void)share_queue.wait_pop_for(queued, stop_token,
                                               std::chrono::milliseconds(20));
                if (!stop_token.stop_requested()) {
-                  if (!candidate.work.empty()) {
-                     share_queue.push(std::move(candidate));
+                  if (!queued.candidate.work.empty()) {
+                     share_queue.push(std::move(queued));
                   }
                }
             }
@@ -592,6 +599,9 @@ int main(int argc, char* argv[]) {
 
       std::jthread worker_thread([&](std::stop_token stop_token) {
          try {
+            cpu_miner::CpuHasherBackend backend;
+            cpu_miner::MiningCoordinator coordinator{backend};
+
             constexpr std::uint64_t kNonceChunkSize =
                static_cast<std::uint64_t>(
                   std::numeric_limits<std::uint32_t>::max()) +
@@ -622,6 +632,9 @@ int main(int argc, char* argv[]) {
 
                auto work = published.work;
 
+               coordinator.set_job(work.job, work.subscription,
+                                   work.extranonce2_counter);
+
                while (!stop_token.stop_requested()) {
                   const std::uint64_t nonce_begin = work.nonce;
                   const std::uint64_t remaining =
@@ -647,37 +660,31 @@ int main(int argc, char* argv[]) {
                      .progress_hashes_done = &counters.current_scan_hashes_done,
                   };
 
-                  const auto result = cpu_miner::scan_nonce_range(
-                     work, published.network_target, published.share_target,
-                     nonce_begin, nonce_end, kProgressInterval, control,
-                     [&](std::uint32_t nonce,
-                         const cpu_miner::sha256::DigestBytes& hash,
-                         bool is_block_candidate) {
+                  coordinator.on_share_found(
+                     [&](const cpu_miner::ShareSubmission& submission,
+                         const cpu_miner::ShareCandidate& candidate) {
                         counters.shares_found.fetch_add(
                            1U, std::memory_order_relaxed);
-                        if (is_block_candidate) {
+                        if (candidate.is_block_candidate) {
                            counters.blocks_found.fetch_add(
                               1U, std::memory_order_relaxed);
                         }
 
-                        cpu_miner::ShareCandidate candidate;
-                        candidate.work = cpu_miner::with_nonce(work, nonce);
-                        candidate.nonce = nonce;
-                        candidate.hash = hash;
-                        candidate.is_block_candidate = is_block_candidate;
-                        candidate.generation = published.generation;
-
-                        share_queue.push(candidate);
+                        share_queue.push(QueuedShare{
+                           .submission = submission,
+                           .candidate = candidate,
+                        });
 
                         events.push(ShareFoundEvent{
-                           .job_id = work.job.job_id,
-                           .extranonce2_hex = work.coinbase.extranonce2_hex,
-                           .generation = published.generation,
-                           .nonce = nonce,
-                           .hash = hash,
+                           .job_id = candidate.work.job.job_id,
+                           .extranonce2_hex =
+                              candidate.work.coinbase.extranonce2_hex,
+                           .generation = candidate.generation,
+                           .nonce = candidate.nonce,
+                           .hash = candidate.hash,
                            .share_target = published.share_target,
                            .network_target = published.network_target,
-                           .block_candidate = is_block_candidate,
+                           .block_candidate = candidate.is_block_candidate,
                            .coinbase_hex = candidate.work.coinbase.coinbase_hex,
                            .coinbase_hash_hex = digest_hex_msb(
                               candidate.work.coinbase.coinbase_hash),
@@ -685,6 +692,12 @@ int main(int argc, char* argv[]) {
                               candidate.work.merkle_root_raw_hex,
                         });
                      });
+
+                  const auto result =
+                     coordinator.scan_range(nonce_begin, nonce_end,
+                                            published.network_target,
+                                            published.share_target,
+                                            kProgressInterval);
 
                   counters.hashes_done.fetch_add(result.hashes_done,
                                                  std::memory_order_relaxed);
@@ -710,6 +723,8 @@ int main(int argc, char* argv[]) {
 
                   if (nonce_end == kMaxNonce) {
                      cpu_miner::advance_extranonce2(work);
+                     coordinator.set_job(work.job, work.subscription,
+                                         work.extranonce2_counter);
                      continue;
                   }
 

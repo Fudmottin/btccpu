@@ -1,8 +1,8 @@
 // src/mining_job/coordinator.cpp
 
-#include <stdexcept>
-
 #include "mining_job/coordinator.hpp"
+
+#include <stdexcept>
 
 namespace cpu_miner {
 
@@ -24,7 +24,7 @@ void MiningCoordinator::on_share_found(CoordinatorShareFoundCallback cb) {
    on_share_found_ = std::move(cb);
 }
 
-CoordinatorResult MiningCoordinator::scan_range(
+ScanResult MiningCoordinator::scan_range(
    std::uint64_t nonce_begin, std::uint64_t nonce_end,
    const u256::uint256& network_target, const u256::uint256& share_target,
    std::uint64_t progress_interval) const {
@@ -45,28 +45,18 @@ CoordinatorResult MiningCoordinator::scan_range(
       .control = {},
    };
 
-   CoordinatorResult result{};
+   auto result = backend_->scan(request, [&](const ShareCandidate& candidate) {
+      if (request_generation != generation_) {
+         return; // stale
+      }
 
-   const auto backend_result =
-      backend_->scan(request, [&](const ShareCandidate& candidate) {
-         if (request_generation != generation_) {
-            return; // stale
-         }
+      if (on_share_found_) {
+         const auto submission =
+            make_share_submission(request.prepared, candidate.nonce);
 
-         ++result.shares_found;
-         if (candidate.is_block_candidate) {
-            ++result.blocks_found;
-         }
-
-         if (on_share_found_) {
-            const auto submission =
-               make_share_submission(request.prepared, candidate.nonce);
-
-            on_share_found_(submission, candidate);
-         }
-      });
-
-   result.hashes_done = backend_result.hashes_done;
+         on_share_found_(submission, candidate);
+      }
+   });
 
    return result;
 }
