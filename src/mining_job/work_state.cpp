@@ -1,7 +1,5 @@
 // src/mining_job/work_state.cpp
 
-#include "mining_job/work_state.hpp"
-
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
@@ -10,6 +8,7 @@
 
 #include "mining_job/merkle.hpp"
 #include "mining_job/share.hpp"
+#include "mining_job/work_state.hpp"
 #include "util/endian.hpp"
 #include "util/hex.hpp"
 
@@ -111,13 +110,30 @@ WorkState work_state_from_prepared(const PreparedWork& prepared,
    return work;
 }
 
-ShareSubmission make_share_submission(const WorkState& work) {
+ShareSubmission make_share_submission(const PreparedWork& prepared,
+                                      std::uint32_t nonce) {
    return ShareSubmission{
-      .job_id = work.job.job_id,
-      .extranonce2_hex = work.coinbase.extranonce2_hex,
-      .ntime_hex = work.job.ntime,
-      .nonce_hex = hex_from_u32_be(work.nonce),
+      .job_id = prepared.job.job_id,
+      .extranonce2_hex = prepared.coinbase.extranonce2_hex,
+      .ntime_hex = prepared.job.ntime,
+      .nonce_hex = hex_from_u32_be(nonce),
    };
+}
+
+ShareSubmission make_share_submission(const WorkState& work) {
+   return make_share_submission(
+      PreparedWork{
+         .job = work.job,
+         .subscription = work.subscription,
+         .extranonce2_counter = work.extranonce2_counter,
+         .extranonce2_hex = work.coinbase.extranonce2_hex,
+         .coinbase = work.coinbase,
+         .merkle_root_raw_hex = work.merkle_root_raw_hex,
+         .prevhash_sha_input = work.prevhash_sha_input,
+         .merkle_root_sha_input = work.merkle_root_sha_input,
+         .header_template = work.header_template,
+      },
+      work.nonce);
 }
 
 bool WorkState::empty() const noexcept {
@@ -153,3 +169,4 @@ WorkState with_nonce(const WorkState& work, std::uint32_t nonce) {
 }
 
 } // namespace cpu_miner
+

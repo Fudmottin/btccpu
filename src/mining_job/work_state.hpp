@@ -80,7 +80,10 @@ void advance_extranonce2(WorkState& work);
 [[nodiscard]] WorkState with_nonce(const WorkState& work, std::uint32_t nonce);
 
 [[nodiscard]] ShareSubmission make_share_submission(const WorkState& work);
+[[nodiscard]] ShareSubmission
+make_share_submission(const PreparedWork& prepared, std::uint32_t nonce);
 
 } // namespace cpu_miner
 
 #endif
+
