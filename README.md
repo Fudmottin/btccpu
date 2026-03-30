@@ -1,24 +1,70 @@
 # btccpu
-Useless bitcoin cpu miner using the CKPool stratum server.
 
-This is just a project for my education. I believe the only way to know how
-something works is if you can implement it in code. In this case, C++20. I've
-been using ChatGPT to try and "teach" me the stratum protocol as implemented
-by CKPool.
+Educational Bitcoin CPU miner using the CKPool Stratum v1 protocol.
 
-I have Bitcoin Core and CKPool running on a Raspbery Pi 5. In turn, there is
-a BitAxe Supra miner connected to the Pi5 via the LAN to do lottery mining.
-Think of the Pi5 as running a small, private bitcoin mining pool.
+The goal is understanding through implementation. This is not intended to be competitive or efficient compared to real mining hardware.
 
-I'm using CMake for project management. Hopefully this code will work on
-both Linux (Debian, Raspberry Pi), MacOS, and other POSIX systems. For
-MacOS, I'm using Homebrew.
+The code is written in C++20 and developed/tested on:
+- Debian (Raspberry Pi 5)
+- macOS (Homebrew toolchain)
 
-```brew install boost cmake```
+Local setup:
+- Bitcoin Core + CKPool running on a Raspberry Pi
+- BitAxe miner used separately for lottery mining
+- This project connects to the same Stratum server for experimentation
 
-For Debian,
+## Build
 
-```sudo apt install boost cmake```
+macOS (Homebrew):
 
-Enjoy.
+```
+brew install boost cmake
+
+```
+Debian:
+
+```
+sudo apt install libboost-all-dev cmake
+
+```
+
+Then:
+
+```
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+
+```
+
+## Architecture
+
+The code is organized into three layers:
+
+- **Protocol**
+  - `StratumClient`
+  - Stratum v1 messages, socket I/O, share submission
+
+- **Mining**
+  - Coinbase, merkle root, and header preparation
+  - Hashing backends (CPU now, others later)
+  - Explicit, test-covered byte-order handling
+
+- **Coordination**
+  - `MiningCoordinator`
+  - Connects prepared work to backends
+  - Produces submission-ready shares
+
+The main thread handles orchestration only:
+- thread lifecycle
+- event handling
+- console output
+
+## Design goals
+
+- Strict separation of protocol and hashing
+- Deterministic, testable mining logic
+- Explicit byte-order semantics
+- Minimize recomputation in the hot path
+- Enable future backends (GPU, ASIC) without invasive changes
 
