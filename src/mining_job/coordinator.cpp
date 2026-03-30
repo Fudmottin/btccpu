@@ -24,10 +24,12 @@ void MiningCoordinator::on_share_found(CoordinatorShareFoundCallback cb) {
    on_share_found_ = std::move(cb);
 }
 
-ScanResult MiningCoordinator::scan_range(
-   std::uint64_t nonce_begin, std::uint64_t nonce_end,
-   const u256::uint256& network_target, const u256::uint256& share_target,
-   std::uint64_t progress_interval) const {
+ScanResult MiningCoordinator::scan_range(std::uint64_t nonce_begin,
+                                         std::uint64_t nonce_end,
+                                         const u256::uint256& network_target,
+                                         const u256::uint256& share_target,
+                                         std::uint64_t progress_interval,
+                                         const ScanControl& control) const {
 
    if (!prepared_) {
       throw std::runtime_error("scan_range called without prepared work");
@@ -42,7 +44,7 @@ ScanResult MiningCoordinator::scan_range(
       .nonce_begin = nonce_begin,
       .nonce_end = nonce_end,
       .progress_interval = progress_interval,
-      .control = {},
+      .control = control,
    };
 
    auto result = backend_->scan(request, [&](const ShareCandidate& candidate) {

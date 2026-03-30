@@ -39,26 +39,6 @@ volatile std::sig_atomic_t g_sigint_requested = 0;
 
 void handle_sigint(int) { g_sigint_requested = 1; }
 
-template<class Range>
-std::string bytes_to_hex_fixed_msb(const Range& bytes) {
-   std::string hex;
-   hex.reserve(bytes.size() * 2U);
-
-   static constexpr char digits[] = "0123456789abcdef";
-
-   for (auto it = bytes.rbegin(); it != bytes.rend(); ++it) {
-      const std::uint8_t b = *it;
-      hex.push_back(digits[(b >> 4U) & 0x0fU]);
-      hex.push_back(digits[b & 0x0fU]);
-   }
-
-   return hex;
-}
-
-std::string digest_hex_msb(const cpu_miner::sha256::DigestBytes& digest) {
-   return bytes_to_hex_fixed_msb(digest);
-}
-
 void print_startup_sanity(const cpu_miner::WorkState& work) {
    std::cout << "coinbase demo:\n";
    std::cout << "  extranonce2: " << work.coinbase.extranonce2_hex << '\n';
@@ -80,7 +60,8 @@ void print_startup_sanity(const cpu_miner::WorkState& work) {
              << '\n';
 
    std::cout << "  coinbase_hash: "
-             << digest_hex_msb(work.coinbase.coinbase_hash) << '\n';
+             << cpu_miner::bytes_to_hex_fixed_msb(work.coinbase.coinbase_hash)
+             << '\n';
 
    const auto decoded_coinbase =
       cpu_miner::decode_coinbase(work.coinbase.coinbase_bytes);
@@ -104,8 +85,8 @@ void print_startup_sanity(const cpu_miner::WorkState& work) {
       cpu_miner::sha256::digest_words_to_bytes_be(header_hash_words);
 
    std::cout << "  header_hex: " << header_hex << '\n';
-   std::cout << "  header_hash_nonce0: " << digest_hex_msb(header_hash_bytes)
-             << '\n';
+   std::cout << "  header_hash_nonce0: "
+             << cpu_miner::bytes_to_hex_fixed_msb(header_hash_bytes) << '\n';
 
    auto template_copy = work.header_template;
    cpu_miner::set_header_nonce(template_copy, nonce0);
@@ -116,7 +97,7 @@ void print_startup_sanity(const cpu_miner::WorkState& work) {
       cpu_miner::sha256::digest_words_to_bytes_be(template_hash_words);
 
    std::cout << "  template_hash_nonce0: "
-             << digest_hex_msb(template_hash_bytes) << '\n';
+             << cpu_miner::bytes_to_hex_fixed_msb(template_hash_bytes) << '\n';
 }
 
 struct PublishedWork {
@@ -372,6 +353,104 @@ class EventQueue {
    std::queue<AppEvent> queue_;
 };
 
+bool drain_share_queue(cpu_miner::StratumClient& client,
+                       ShareQueue& share_queue, EventQueue& events,
+                       Counters& counters,
+                       const std::atomic<std::uint64_t>& work_generation) {
+   bool did_work = false;
+
+   QueuedShare queued;
+   while (share_queue.try_pop(queued)) {
+      did_work = true;
+
+      const std::uint64_t current_generation =
+         work_generation.load(std::memory_order_acquire);
+
+      const auto& candidate = queued.candidate;
+
+      if (candidate.generation != current_generation) {
+         events.push(StaleShareDiscardedEvent{
+            .job_id = candidate.work.job.job_id,
+            .nonce = candidate.nonce,
+            .candidate_generation = candidate.generation,
+            .current_generation = current_generation,
+         });
+         continue;
+      }
+
+      const auto& submission = queued.submission;
+      const auto submit_result = client.submit_share(submission);
+
+      if (submit_result.accepted) {
+         counters.shares_accepted.fetch_add(1U, std::memory_order_relaxed);
+      } else {
+         counters.shares_rejected.fetch_add(1U, std::memory_order_relaxed);
+      }
+
+      events.push(ShareSubmitEvent{
+         .job_id = candidate.work.job.job_id,
+         .extranonce2_hex = candidate.work.coinbase.extranonce2_hex,
+         .ntime_hex = candidate.work.job.ntime,
+         .nonce_hex = submission.nonce_hex,
+         .generation = candidate.generation,
+         .nonce = candidate.nonce,
+         .accepted = submit_result.accepted,
+         .error_text = submit_result.error_text,
+         .raw_request = submit_result.raw_request,
+         .raw_response = submit_result.raw_response,
+      });
+   }
+
+   return did_work;
+}
+
+std::optional<PublishedWork>
+wait_for_published_work(SharedWorkState& shared_work,
+                        std::stop_token stop_token) {
+   for (;;) {
+      if (stop_token.stop_requested()) {
+         return std::nullopt;
+      }
+
+      std::unique_lock<std::mutex> lock(shared_work.mutex);
+      if (shared_work.published.has_value()) {
+         return *shared_work.published;
+      }
+
+      shared_work.cv.wait_for(lock, std::chrono::milliseconds(50));
+   }
+}
+
+void handle_found_share(const cpu_miner::ShareSubmission& submission,
+                        const cpu_miner::ShareCandidate& candidate,
+                        const PublishedWork& published, ShareQueue& share_queue,
+                        EventQueue& events, Counters& counters) {
+   counters.shares_found.fetch_add(1U, std::memory_order_relaxed);
+   if (candidate.is_block_candidate) {
+      counters.blocks_found.fetch_add(1U, std::memory_order_relaxed);
+   }
+
+   share_queue.push(QueuedShare{
+      .submission = submission,
+      .candidate = candidate,
+   });
+
+   events.push(ShareFoundEvent{
+      .job_id = candidate.work.job.job_id,
+      .extranonce2_hex = candidate.work.coinbase.extranonce2_hex,
+      .generation = candidate.generation,
+      .nonce = candidate.nonce,
+      .hash = candidate.hash,
+      .share_target = published.share_target,
+      .network_target = published.network_target,
+      .block_candidate = candidate.is_block_candidate,
+      .coinbase_hex = candidate.work.coinbase.coinbase_hex,
+      .coinbase_hash_hex = cpu_miner::bytes_to_hex_fixed_msb(
+         candidate.work.coinbase.coinbase_hash),
+      .merkle_root_raw_hex = candidate.work.merkle_root_raw_hex,
+   });
+}
+
 void publish_latest_work(SharedWorkState& shared_work,
                          std::atomic<std::uint64_t>& work_generation,
                          const cpu_miner::StratumClient& client,
@@ -520,52 +599,8 @@ int main(int argc, char* argv[]) {
             }
 
             while (!stop_token.stop_requested()) {
-               bool did_work = false;
-
-               QueuedShare queued;
-               while (share_queue.try_pop(queued)) {
-                  did_work = true;
-
-                  const std::uint64_t current_generation =
-                     work_generation.load(std::memory_order_acquire);
-
-                  const auto& candidate = queued.candidate;
-
-                  if (candidate.generation != current_generation) {
-                     events.push(StaleShareDiscardedEvent{
-                        .job_id = candidate.work.job.job_id,
-                        .nonce = candidate.nonce,
-                        .candidate_generation = candidate.generation,
-                        .current_generation = current_generation,
-                     });
-                     continue;
-                  }
-
-                  const auto& submission = queued.submission;
-
-                  const auto submit_result = client.submit_share(submission);
-
-                  if (submit_result.accepted) {
-                     counters.shares_accepted.fetch_add(
-                        1U, std::memory_order_relaxed);
-                  } else {
-                     counters.shares_rejected.fetch_add(
-                        1U, std::memory_order_relaxed);
-                  }
-
-                  events.push(ShareSubmitEvent{
-                     .job_id = candidate.work.job.job_id,
-                     .extranonce2_hex = candidate.work.coinbase.extranonce2_hex,
-                     .ntime_hex = candidate.work.job.ntime,
-                     .nonce_hex = submission.nonce_hex,
-                     .generation = candidate.generation,
-                     .nonce = candidate.nonce,
-                     .accepted = submit_result.accepted,
-                     .error_text = submit_result.error_text,
-                     .raw_request = submit_result.raw_request,
-                     .raw_response = submit_result.raw_response,
-                  });
-               }
+               bool did_work = drain_share_queue(client, share_queue, events,
+                                                 counters, work_generation);
 
                const auto poll = client.poll();
                if (poll.work_invalidated) {
@@ -581,6 +616,7 @@ int main(int argc, char* argv[]) {
                   continue;
                }
 
+               QueuedShare queued;
                (void)share_queue.wait_pop_for(queued, stop_token,
                                               std::chrono::milliseconds(20));
                if (!stop_token.stop_requested()) {
@@ -611,25 +647,14 @@ int main(int argc, char* argv[]) {
                std::numeric_limits<std::uint32_t>::max());
 
             for (;;) {
-               PublishedWork published;
-
-               for (;;) {
-                  if (stop_token.stop_requested()) {
-                     events.push(ThreadExitedEvent{.thread_name = "worker"});
-                     return;
-                  }
-
-                  {
-                     std::unique_lock<std::mutex> lock(shared_work.mutex);
-                     if (shared_work.published.has_value()) {
-                        published = *shared_work.published;
-                        break;
-                     }
-                     shared_work.cv.wait_for(lock,
-                                             std::chrono::milliseconds(50));
-                  }
+               const auto maybe_published =
+                  wait_for_published_work(shared_work, stop_token);
+               if (!maybe_published.has_value()) {
+                  events.push(ThreadExitedEvent{.thread_name = "worker"});
+                  return;
                }
 
+               auto published = *maybe_published;
                auto work = published.work;
 
                coordinator.set_job(work.job, work.subscription,
@@ -663,41 +688,15 @@ int main(int argc, char* argv[]) {
                   coordinator.on_share_found(
                      [&](const cpu_miner::ShareSubmission& submission,
                          const cpu_miner::ShareCandidate& candidate) {
-                        counters.shares_found.fetch_add(
-                           1U, std::memory_order_relaxed);
-                        if (candidate.is_block_candidate) {
-                           counters.blocks_found.fetch_add(
-                              1U, std::memory_order_relaxed);
-                        }
-
-                        share_queue.push(QueuedShare{
-                           .submission = submission,
-                           .candidate = candidate,
-                        });
-
-                        events.push(ShareFoundEvent{
-                           .job_id = candidate.work.job.job_id,
-                           .extranonce2_hex =
-                              candidate.work.coinbase.extranonce2_hex,
-                           .generation = candidate.generation,
-                           .nonce = candidate.nonce,
-                           .hash = candidate.hash,
-                           .share_target = published.share_target,
-                           .network_target = published.network_target,
-                           .block_candidate = candidate.is_block_candidate,
-                           .coinbase_hex = candidate.work.coinbase.coinbase_hex,
-                           .coinbase_hash_hex = digest_hex_msb(
-                              candidate.work.coinbase.coinbase_hash),
-                           .merkle_root_raw_hex =
-                              candidate.work.merkle_root_raw_hex,
-                        });
+                        handle_found_share(submission, candidate, published,
+                                           share_queue, events, counters);
                      });
 
                   const auto result =
                      coordinator.scan_range(nonce_begin, nonce_end,
                                             published.network_target,
                                             published.share_target,
-                                            kProgressInterval);
+                                            kProgressInterval, control);
 
                   counters.hashes_done.fetch_add(result.hashes_done,
                                                  std::memory_order_relaxed);
@@ -821,9 +820,9 @@ int main(int argc, char* argv[]) {
                         << " nonce=" << e.nonce << '\n';
 
                      // --- hash ---
-                     std::cout
-                        << "    hash (display, BE):  " << digest_hex_msb(e.hash)
-                        << '\n';
+                     std::cout << "    hash (display, BE):  "
+                               << cpu_miner::bytes_to_hex_fixed_msb(e.hash)
+                               << '\n';
                      std::cout << "    hash (raw bytes):    "
                                << cpu_miner::bytes_to_hex(e.hash) << '\n';
 

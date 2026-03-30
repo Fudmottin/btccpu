@@ -30,4 +30,24 @@ hex_to_array_32(std::string_view hex);
 
 } // namespace cpu_miner
 
+namespace cpu_miner {
+
+template<class Range>
+inline std::string bytes_to_hex_fixed_msb(const Range& bytes) {
+   std::string hex;
+   hex.reserve(bytes.size() * 2U);
+
+   static constexpr char digits[] = "0123456789abcdef";
+
+   for (auto it = bytes.rbegin(); it != bytes.rend(); ++it) {
+      const std::uint8_t b = *it;
+      hex.push_back(digits[(b >> 4U) & 0x0fU]);
+      hex.push_back(digits[b & 0x0fU]);
+   }
+
+   return hex;
+}
+
+} // namespace cpu_miner
+
 #endif

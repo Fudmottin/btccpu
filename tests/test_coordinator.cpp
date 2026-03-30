@@ -31,8 +31,8 @@ TEST_CASE("coordinator produces correct share submission", "[coordinator]") {
    const auto result =
       coordinator.scan_range(target_nonce, target_nonce,
                              expand_compact_target(u32_from_hex_be("1701f0cc")),
-                             share_target_from_difficulty(std::uint64_t{1}),
-                             0U);
+                             share_target_from_difficulty(std::uint64_t{1}), 0U,
+                             ScanControl{});
 
    REQUIRE(result.hashes_done == 1U);
    REQUIRE(result.shares_found == 1U);

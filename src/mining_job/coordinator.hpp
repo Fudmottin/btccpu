@@ -27,11 +27,12 @@ class MiningCoordinator {
 
    void on_share_found(CoordinatorShareFoundCallback cb);
 
-   [[nodiscard]] ScanResult
-   scan_range(std::uint64_t nonce_begin, std::uint64_t nonce_end,
-              const u256::uint256& network_target,
-              const u256::uint256& share_target,
-              std::uint64_t progress_interval = 0) const;
+   [[nodiscard]] ScanResult scan_range(std::uint64_t nonce_begin,
+                                       std::uint64_t nonce_end,
+                                       const u256::uint256& network_target,
+                                       const u256::uint256& share_target,
+                                       std::uint64_t progress_interval,
+                                       const ScanControl& control) const;
 
  private:
    HasherBackend* backend_{};
