@@ -625,6 +625,36 @@ cpu_miner::ScanResult run_scan_chunk(
    return result;
 }
 
+enum class WorkerNextAction {
+   adopt_new_work,
+   exit_thread,
+   continue_scanning,
+};
+
+WorkerNextAction handle_scan_result(const cpu_miner::ScanResult& result,
+                                    cpu_miner::WorkState& work,
+                                    cpu_miner::MiningCoordinator& coordinator,
+                                    std::uint64_t nonce_end,
+                                    EventQueue& events) {
+   if (result.stop_reason == cpu_miner::ScanStopReason::stale) {
+      return WorkerNextAction::adopt_new_work;
+   }
+
+   if (result.stop_reason == cpu_miner::ScanStopReason::stop_requested) {
+      events.push(ThreadExitedEvent{.thread_name = "worker"});
+      return WorkerNextAction::exit_thread;
+   }
+
+   if (nonce_end == kMaxNonce) {
+      cpu_miner::advance_extranonce2(work);
+      coordinator.set_job(work.job, work.subscription, work.extranonce2_counter);
+      return WorkerNextAction::continue_scanning;
+   }
+
+   work.nonce = static_cast<std::uint32_t>(nonce_end + 1ULL);
+   return WorkerNextAction::continue_scanning;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -742,24 +772,16 @@ int main(int argc, char* argv[]) {
                                     nonce_end, stop_token, work_generation,
                                     share_queue, events, counters);
 
-                  if (result.stop_reason == cpu_miner::ScanStopReason::stale) {
+                  switch (handle_scan_result(result, work, coordinator,
+                                             nonce_end, events)) {
+                  case WorkerNextAction::adopt_new_work:
                      break;
-                  }
-
-                  if (result.stop_reason ==
-                      cpu_miner::ScanStopReason::stop_requested) {
-                     events.push(ThreadExitedEvent{.thread_name = "worker"});
+                  case WorkerNextAction::exit_thread:
                      return;
-                  }
-
-                  if (nonce_end == kMaxNonce) {
-                     cpu_miner::advance_extranonce2(work);
-                     coordinator.set_job(work.job, work.subscription,
-                                         work.extranonce2_counter);
+                  case WorkerNextAction::continue_scanning:
                      continue;
                   }
-
-                  work.nonce = static_cast<std::uint32_t>(nonce_end + 1ULL);
+                  break;
                }
             }
          } catch (...) {
