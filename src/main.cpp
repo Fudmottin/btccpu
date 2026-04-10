@@ -584,6 +584,47 @@ cpu_miner::ScanControl make_scan_control(
    };
 }
 
+cpu_miner::ScanResult run_scan_chunk(
+   cpu_miner::MiningCoordinator& coordinator, const PublishedWork& published,
+   cpu_miner::WorkState& work, std::uint64_t nonce_begin,
+   std::uint64_t nonce_end, std::stop_token stop_token,
+   std::atomic<std::uint64_t>& work_generation, ShareQueue& share_queue,
+   EventQueue& events, Counters& counters) {
+   events.push(ChunkStartedEvent{
+      .job_id = work.job.job_id,
+      .extranonce2_hex = work.coinbase.extranonce2_hex,
+      .generation = published.generation,
+      .nonce_begin = nonce_begin,
+      .nonce_end = nonce_end,
+   });
+
+   const auto control =
+      make_scan_control(stop_token, work_generation, published.generation,
+                        counters.current_scan_hashes_done);
+
+   coordinator.on_share_found([&](const cpu_miner::ShareSubmission& submission,
+                                  const cpu_miner::ShareCandidate& candidate) {
+      handle_found_share(submission, candidate, published, share_queue, events,
+                         counters);
+   });
+
+   const auto result =
+      coordinator.scan_range(nonce_begin, nonce_end, published.network_target,
+                             published.share_target, kProgressInterval, control);
+
+   counters.hashes_done.fetch_add(result.hashes_done, std::memory_order_relaxed);
+   counters.current_scan_hashes_done.store(0U, std::memory_order_relaxed);
+
+   events.push(ScanFinishedEvent{
+      .job_id = work.job.job_id,
+      .extranonce2_hex = work.coinbase.extranonce2_hex,
+      .generation = published.generation,
+      .result = result,
+   });
+
+   return result;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -696,43 +737,10 @@ int main(int argc, char* argv[]) {
                   const std::uint64_t nonce_begin = chunk.nonce_begin;
                   const std::uint64_t nonce_end = chunk.nonce_end;
 
-                  events.push(ChunkStartedEvent{
-                     .job_id = work.job.job_id,
-                     .extranonce2_hex = work.coinbase.extranonce2_hex,
-                     .generation = published.generation,
-                     .nonce_begin = nonce_begin,
-                     .nonce_end = nonce_end,
-                  });
-
-                  const auto control =
-                     make_scan_control(stop_token, work_generation,
-                                       published.generation,
-                                       counters.current_scan_hashes_done);
-
-                  coordinator.on_share_found(
-                     [&](const cpu_miner::ShareSubmission& submission,
-                         const cpu_miner::ShareCandidate& candidate) {
-                        handle_found_share(submission, candidate, published,
-                                           share_queue, events, counters);
-                     });
-
                   const auto result =
-                     coordinator.scan_range(nonce_begin, nonce_end,
-                                            published.network_target,
-                                            published.share_target,
-                                            kProgressInterval, control);
-
-                  counters.hashes_done.fetch_add(result.hashes_done,
-                                                 std::memory_order_relaxed);
-                  counters.current_scan_hashes_done.store(
-                     0U, std::memory_order_relaxed);
-
-                  events.push(ScanFinishedEvent{
-                     .job_id = work.job.job_id,
-                     .extranonce2_hex = work.coinbase.extranonce2_hex,
-                     .generation = published.generation,
-                     .result = result,
-                  });
+                     run_scan_chunk(coordinator, published, work, nonce_begin,
+                                    nonce_end, stop_token, work_generation,
+                                    share_queue, events, counters);
 
                   if (result.stop_reason == cpu_miner::ScanStopReason::stale) {
                      break;
