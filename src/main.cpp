@@ -510,7 +510,8 @@ void maybe_publish_startup_event(std::atomic<bool>& startup_announced,
    events.push(StartupEvent{
       .work = published.work,
       .difficulty = client.difficulty(),
-      .share_difficulty = static_cast<std::uint64_t>(published.share_difficulty),
+      .share_difficulty =
+         static_cast<std::uint64_t>(published.share_difficulty),
       .extranonce1 = published.work.subscription.extranonce1,
       .extranonce2_size = published.work.subscription.extranonce2_size,
    });
@@ -578,7 +579,6 @@ void print_scan_finished(const ScanFinishedEvent& event) {
       break;
    }
 }
-
 
 struct EventRenderOutcome {
    bool control_exited{};
@@ -736,11 +736,11 @@ ScanChunk make_scan_chunk(std::uint32_t nonce_begin) {
    };
 }
 
-cpu_miner::ScanControl make_scan_control(
-   std::stop_token stop_token,
-   std::atomic<std::uint64_t>& work_generation,
-   std::uint64_t expected_generation,
-   std::atomic<std::uint64_t>& current_scan_hashes_done) {
+cpu_miner::ScanControl
+make_scan_control(std::stop_token stop_token,
+                  std::atomic<std::uint64_t>& work_generation,
+                  std::uint64_t expected_generation,
+                  std::atomic<std::uint64_t>& current_scan_hashes_done) {
    return cpu_miner::ScanControl{
       .stop_token = stop_token,
       .work_generation = &work_generation,
@@ -776,9 +776,11 @@ cpu_miner::ScanResult run_scan_chunk(
 
    const auto result =
       coordinator.scan_range(nonce_begin, nonce_end, published.network_target,
-                             published.share_target, kProgressInterval, control);
+                             published.share_target, kProgressInterval,
+                             control);
 
-   counters.hashes_done.fetch_add(result.hashes_done, std::memory_order_relaxed);
+   counters.hashes_done.fetch_add(result.hashes_done,
+                                  std::memory_order_relaxed);
    counters.current_scan_hashes_done.store(0U, std::memory_order_relaxed);
 
    events.push(ScanFinishedEvent{
@@ -813,7 +815,8 @@ WorkerNextAction handle_scan_result(const cpu_miner::ScanResult& result,
 
    if (nonce_end == kMaxNonce) {
       cpu_miner::advance_extranonce2(work);
-      coordinator.set_job(work.job, work.subscription, work.extranonce2_counter);
+      coordinator.set_job(work.job, work.subscription,
+                          work.extranonce2_counter);
       return WorkerNextAction::continue_scanning;
    }
 
