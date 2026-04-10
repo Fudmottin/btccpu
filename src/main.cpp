@@ -545,6 +545,31 @@ void print_scan_finished(const ScanFinishedEvent& event) {
    }
 }
 
+struct ScanChunk {
+   std::uint64_t nonce_begin{};
+   std::uint64_t nonce_end{};
+   std::uint64_t hashes{};
+};
+
+constexpr std::uint64_t kNonceChunkSize =
+   static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1ULL;
+constexpr std::uint64_t kProgressInterval = 1'000'000ULL;
+constexpr std::uint64_t kMaxNonce =
+   static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max());
+
+ScanChunk make_scan_chunk(std::uint32_t nonce_begin) {
+   const std::uint64_t begin = nonce_begin;
+   const std::uint64_t remaining = (kMaxNonce - begin) + 1ULL;
+   const std::uint64_t hashes = std::min(kNonceChunkSize, remaining);
+   const std::uint64_t end = begin + hashes - 1ULL;
+
+   return ScanChunk{
+      .nonce_begin = begin,
+      .nonce_end = end,
+      .hashes = hashes,
+   };
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -638,14 +663,6 @@ int main(int argc, char* argv[]) {
             cpu_miner::CpuHasherBackend backend;
             cpu_miner::MiningCoordinator coordinator{backend};
 
-            constexpr std::uint64_t kNonceChunkSize =
-               static_cast<std::uint64_t>(
-                  std::numeric_limits<std::uint32_t>::max()) +
-               1ULL;
-            constexpr std::uint64_t kProgressInterval = 1'000'000ULL;
-            constexpr std::uint64_t kMaxNonce = static_cast<std::uint64_t>(
-               std::numeric_limits<std::uint32_t>::max());
-
             for (;;) {
                const auto maybe_published =
                   wait_for_published_work(shared_work, stop_token);
@@ -661,13 +678,9 @@ int main(int argc, char* argv[]) {
                                    work.extranonce2_counter);
 
                while (!stop_token.stop_requested()) {
-                  const std::uint64_t nonce_begin = work.nonce;
-                  const std::uint64_t remaining =
-                     (kMaxNonce - nonce_begin) + 1ULL;
-                  const std::uint64_t this_chunk_hashes =
-                     std::min(kNonceChunkSize, remaining);
-                  const std::uint64_t nonce_end =
-                     nonce_begin + this_chunk_hashes - 1ULL;
+                  const ScanChunk chunk = make_scan_chunk(work.nonce);
+                  const std::uint64_t nonce_begin = chunk.nonce_begin;
+                  const std::uint64_t nonce_end = chunk.nonce_end;
 
                   events.push(ChunkStartedEvent{
                      .job_id = work.job.job_id,
