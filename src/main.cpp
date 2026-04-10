@@ -516,6 +516,17 @@ void maybe_publish_startup_event(std::atomic<bool>& startup_announced,
    });
 }
 
+void control_idle_wait(ShareQueue& share_queue, std::stop_token stop_token) {
+   QueuedShare queued;
+   (void)share_queue.wait_pop_for(queued, stop_token,
+                                  std::chrono::milliseconds(20));
+   if (!stop_token.stop_requested()) {
+      if (!queued.candidate.work.empty()) {
+         share_queue.push(std::move(queued));
+      }
+   }
+}
+
 void record_thread_exception(std::mutex& error_mutex,
                              std::exception_ptr& first_error,
                              EventQueue& events, std::string source) {
@@ -739,14 +750,7 @@ int main(int argc, char* argv[]) {
                   continue;
                }
 
-               QueuedShare queued;
-               (void)share_queue.wait_pop_for(queued, stop_token,
-                                              std::chrono::milliseconds(20));
-               if (!stop_token.stop_requested()) {
-                  if (!queued.candidate.work.empty()) {
-                     share_queue.push(std::move(queued));
-                  }
-               }
+               control_idle_wait(share_queue, stop_token);
             }
          } catch (...) {
             record_thread_exception(error_mutex, first_error, events,
