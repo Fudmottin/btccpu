@@ -493,6 +493,29 @@ void publish_latest_work(SharedWorkState& shared_work,
    });
 }
 
+void maybe_publish_startup_event(std::atomic<bool>& startup_announced,
+                                 SharedWorkState& shared_work,
+                                 const cpu_miner::StratumClient& client,
+                                 EventQueue& events) {
+   if (startup_announced.exchange(true, std::memory_order_acq_rel)) {
+      return;
+   }
+
+   std::lock_guard<std::mutex> lock(shared_work.mutex);
+   if (!shared_work.published.has_value()) {
+      return;
+   }
+
+   const auto& published = *shared_work.published;
+   events.push(StartupEvent{
+      .work = published.work,
+      .difficulty = client.difficulty(),
+      .share_difficulty = static_cast<std::uint64_t>(published.share_difficulty),
+      .extranonce1 = published.work.subscription.extranonce1,
+      .extranonce2_size = published.work.subscription.extranonce2_size,
+   });
+}
+
 void record_thread_exception(std::mutex& error_mutex,
                              std::exception_ptr& first_error,
                              EventQueue& events, std::string source) {
@@ -695,18 +718,8 @@ int main(int argc, char* argv[]) {
 
             publish_latest_work(shared_work, work_generation, client, events);
 
-            if (!startup_announced.exchange(true, std::memory_order_acq_rel)) {
-               const auto& published = *shared_work.published;
-               events.push(StartupEvent{
-                  .work = published.work,
-                  .difficulty = client.difficulty(),
-                  .share_difficulty =
-                     static_cast<uint64_t>(published.share_difficulty),
-                  .extranonce1 = published.work.subscription.extranonce1,
-                  .extranonce2_size =
-                     published.work.subscription.extranonce2_size,
-               });
-            }
+            maybe_publish_startup_event(startup_announced, shared_work, client,
+                                        events);
 
             while (!stop_token.stop_requested()) {
                bool did_work = drain_share_queue(client, share_queue, events,
