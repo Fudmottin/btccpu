@@ -579,6 +579,138 @@ void print_scan_finished(const ScanFinishedEvent& event) {
    }
 }
 
+
+struct EventRenderOutcome {
+   bool control_exited{};
+   bool worker_exited{};
+};
+
+EventRenderOutcome render_event(const AppEvent& event, const Counters& counters,
+                                bool& status_line_active) {
+   EventRenderOutcome outcome{};
+
+   std::visit(
+      [&](const auto& e) {
+         using T = std::decay_t<decltype(e)>;
+
+         clear_status_line(status_line_active);
+
+         if constexpr (std::is_same_v<T, StartupEvent>) {
+            std::cout << "Difficulty: " << e.difficulty << "\n";
+            print_startup_sanity(e.work);
+            std::cout << "subscription:\n";
+            std::cout << "  extranonce1: " << e.extranonce1 << '\n';
+            std::cout << "  extranonce2_size: " << e.extranonce2_size << '\n';
+
+            const std::uint32_t nbits =
+               cpu_miner::u32_from_hex_be(e.work.job.nbits);
+
+            std::cout << "mining setup:\n";
+            std::cout << "  nbits: 0x" << std::hex << std::setw(8)
+                      << std::setfill('0') << nbits << std::dec
+                      << std::setfill(' ') << '\n';
+            std::cout << "  share difficulty: " << e.share_difficulty << '\n';
+         } else if constexpr (std::is_same_v<T, WorkUpdateEvent>) {
+            std::cout << "work update:\n";
+            std::cout << "  generation: " << e.generation << '\n';
+            std::cout << "  job_id: " << e.job_id << '\n';
+            std::cout << "  ntime: " << e.ntime_hex << '\n';
+            std::cout << "  clean_jobs: " << (e.clean_jobs ? "true" : "false")
+                      << '\n';
+            std::cout << "  difficulty: " << e.difficulty << '\n';
+            if (!e.raw_notify.empty()) {
+               std::cout << "  raw notify: " << e.raw_notify << '\n';
+            }
+            if (!e.parsed_summary.empty()) {
+               std::cout << "  parsed notify summary:\n";
+               std::cout << e.parsed_summary;
+            }
+         } else if constexpr (std::is_same_v<T, ChunkStartedEvent>) {
+            std::cout << "mining chunk:\n";
+            std::cout << "  generation: " << e.generation << '\n';
+            std::cout << "  job_id: " << e.job_id << '\n';
+            std::cout << "  extranonce2: " << e.extranonce2_hex << '\n';
+            std::cout << "  nonce range: [" << e.nonce_begin << ", "
+                      << e.nonce_end << "]\n";
+         } else if constexpr (std::is_same_v<T, ShareFoundEvent>) {
+            std::cout << "  "
+                      << (e.block_candidate ? "BLOCK CANDIDATE" : "SHARE HIT")
+                      << " generation=" << e.generation << " nonce=" << e.nonce
+                      << '\n';
+
+            std::cout << "    hash (display, BE):  "
+                      << cpu_miner::bytes_to_hex_fixed_msb(e.hash) << '\n';
+            std::cout << "    hash (raw bytes):    "
+                      << cpu_miner::bytes_to_hex(e.hash) << '\n';
+
+            std::cout << "    share target:        "
+                      << e.share_target.to_hex_be_fixed() << '\n';
+            std::cout << "    network target:      "
+                      << e.network_target.to_hex_be_fixed() << '\n';
+
+            const auto meets_share =
+               cpu_miner::hash_meets_target(e.hash, e.share_target);
+            const auto meets_network =
+               cpu_miner::hash_meets_target(e.hash, e.network_target);
+
+            std::cout << "    meets share target:  "
+                      << (meets_share ? "true" : "false") << '\n';
+            std::cout << "    meets network target:"
+                      << (meets_network ? " true" : " false") << '\n';
+
+            std::cout << "    coinbase hex:        " << e.coinbase_hex << '\n';
+            std::cout << "    coinbase hash (BE):  " << e.coinbase_hash_hex
+                      << '\n';
+            std::cout << "    merkle root (BE):    " << e.merkle_root_raw_hex
+                      << '\n';
+         } else if constexpr (std::is_same_v<T, ShareSubmitEvent>) {
+            std::cout << "  share submission: "
+                      << (e.accepted ? "accepted" : "rejected") << '\n';
+            std::cout << "    generation: " << e.generation << '\n';
+            std::cout << "    job_id: " << e.job_id << '\n';
+            std::cout << "    extranonce2: " << e.extranonce2_hex << '\n';
+            std::cout << "    ntime: " << e.ntime_hex << '\n';
+            std::cout << "    nonce: " << e.nonce << '\n';
+            std::cout << "    nonce_hex: " << e.nonce_hex << '\n';
+            if (!e.error_text.empty()) {
+               std::cout << "    error: " << e.error_text << '\n';
+            }
+            if (!e.raw_request.empty()) {
+               std::cout << "    raw request:  " << e.raw_request << '\n';
+            }
+            if (!e.raw_response.empty()) {
+               std::cout << "    raw response: " << e.raw_response << '\n';
+            }
+            print_running_totals(snapshot_counters(counters));
+         } else if constexpr (std::is_same_v<T, StaleShareDiscardedEvent>) {
+            std::cout << "stale share candidate discarded:\n";
+            std::cout << "  job_id: " << e.job_id << '\n';
+            std::cout << "  nonce: " << e.nonce << '\n';
+            std::cout << "  candidate_generation: " << e.candidate_generation
+                      << '\n';
+            std::cout << "  current_generation: " << e.current_generation
+                      << '\n';
+         } else if constexpr (std::is_same_v<T, ScanFinishedEvent>) {
+            print_scan_finished(e);
+            print_running_totals(snapshot_counters(counters));
+         } else if constexpr (std::is_same_v<T, ShutdownEvent>) {
+            std::cout << e.reason << '\n';
+         } else if constexpr (std::is_same_v<T, ErrorEvent>) {
+            std::cerr << "error[" << e.source << "]: " << e.message << '\n';
+         } else if constexpr (std::is_same_v<T, ThreadExitedEvent>) {
+            std::cout << "thread exited: " << e.thread_name << '\n';
+            if (e.thread_name == "control") {
+               outcome.control_exited = true;
+            } else if (e.thread_name == "worker") {
+               outcome.worker_exited = true;
+            }
+         }
+      },
+      event);
+
+   return outcome;
+}
+
 struct ScanChunk {
    std::uint64_t nonce_begin{};
    std::uint64_t nonce_end{};
@@ -836,145 +968,10 @@ int main(int argc, char* argv[]) {
 
          AppEvent event;
          if (events.wait_pop_for(event, std::chrono::milliseconds(100))) {
-            std::visit(
-               [&](const auto& e) {
-                  using T = std::decay_t<decltype(e)>;
-
-                  clear_status_line(status_line_active);
-
-                  if constexpr (std::is_same_v<T, StartupEvent>) {
-                     std::cout << "Difficulty: " << e.difficulty << "\n";
-                     print_startup_sanity(e.work);
-                     std::cout << "subscription:\n";
-                     std::cout << "  extranonce1: " << e.extranonce1 << '\n';
-                     std::cout << "  extranonce2_size: " << e.extranonce2_size
-                               << '\n';
-
-                     const std::uint32_t nbits =
-                        cpu_miner::u32_from_hex_be(e.work.job.nbits);
-
-                     std::cout << "mining setup:\n";
-                     std::cout << "  nbits: 0x" << std::hex << std::setw(8)
-                               << std::setfill('0') << nbits << std::dec
-                               << std::setfill(' ') << '\n';
-                     std::cout << "  share difficulty: " << e.share_difficulty
-                               << '\n';
-                  } else if constexpr (std::is_same_v<T, WorkUpdateEvent>) {
-                     std::cout << "work update:\n";
-                     std::cout << "  generation: " << e.generation << '\n';
-                     std::cout << "  job_id: " << e.job_id << '\n';
-                     std::cout << "  ntime: " << e.ntime_hex << '\n';
-                     std::cout
-                        << "  clean_jobs: " << (e.clean_jobs ? "true" : "false")
-                        << '\n';
-                     std::cout << "  difficulty: " << e.difficulty << '\n';
-                     if (!e.raw_notify.empty()) {
-                        std::cout << "  raw notify: " << e.raw_notify << '\n';
-                     }
-                     if (!e.parsed_summary.empty()) {
-                        std::cout << "  parsed notify summary:\n";
-                        std::cout << e.parsed_summary;
-                     }
-                  } else if constexpr (std::is_same_v<T, ChunkStartedEvent>) {
-                     std::cout << "mining chunk:\n";
-                     std::cout << "  generation: " << e.generation << '\n';
-                     std::cout << "  job_id: " << e.job_id << '\n';
-                     std::cout << "  extranonce2: " << e.extranonce2_hex
-                               << '\n';
-                     std::cout << "  nonce range: [" << e.nonce_begin << ", "
-                               << e.nonce_end << "]\n";
-                  } else if constexpr (std::is_same_v<T, ShareFoundEvent>) {
-                     std::cout
-                        << "  "
-                        << (e.block_candidate ? "BLOCK CANDIDATE" : "SHARE HIT")
-                        << " generation=" << e.generation
-                        << " nonce=" << e.nonce << '\n';
-
-                     // --- hash ---
-                     std::cout << "    hash (display, BE):  "
-                               << cpu_miner::bytes_to_hex_fixed_msb(e.hash)
-                               << '\n';
-                     std::cout << "    hash (raw bytes):    "
-                               << cpu_miner::bytes_to_hex(e.hash) << '\n';
-
-                     // --- targets ---
-                     std::cout << "    share target:        "
-                               << e.share_target.to_hex_be_fixed() << '\n';
-                     std::cout << "    network target:      "
-                               << e.network_target.to_hex_be_fixed() << '\n';
-
-                     // --- comparison (authoritative path) ---
-                     const auto meets_share =
-                        cpu_miner::hash_meets_target(e.hash, e.share_target);
-                     const auto meets_network =
-                        cpu_miner::hash_meets_target(e.hash, e.network_target);
-
-                     std::cout << "    meets share target:  "
-                               << (meets_share ? "true" : "false") << '\n';
-                     std::cout << "    meets network target:"
-                               << (meets_network ? " true" : " false") << '\n';
-
-                     // --- construction diagnostics ---
-                     std::cout << "    coinbase hex:        " << e.coinbase_hex
-                               << '\n';
-                     std::cout
-                        << "    coinbase hash (BE):  " << e.coinbase_hash_hex
-                        << '\n';
-                     std::cout
-                        << "    merkle root (BE):    " << e.merkle_root_raw_hex
-                        << '\n';
-                  } else if constexpr (std::is_same_v<T, ShareSubmitEvent>) {
-                     std::cout << "  share submission: "
-                               << (e.accepted ? "accepted" : "rejected")
-                               << '\n';
-                     std::cout << "    generation: " << e.generation << '\n';
-                     std::cout << "    job_id: " << e.job_id << '\n';
-                     std::cout << "    extranonce2: " << e.extranonce2_hex
-                               << '\n';
-                     std::cout << "    ntime: " << e.ntime_hex << '\n';
-                     std::cout << "    nonce: " << e.nonce << '\n';
-                     std::cout << "    nonce_hex: " << e.nonce_hex << '\n';
-                     if (!e.error_text.empty()) {
-                        std::cout << "    error: " << e.error_text << '\n';
-                     }
-                     if (!e.raw_request.empty()) {
-                        std::cout << "    raw request:  " << e.raw_request
-                                  << '\n';
-                     }
-                     if (!e.raw_response.empty()) {
-                        std::cout << "    raw response: " << e.raw_response
-                                  << '\n';
-                     }
-                     print_running_totals(snapshot_counters(counters));
-                  } else if constexpr (std::is_same_v<
-                                          T, StaleShareDiscardedEvent>) {
-                     std::cout << "stale share candidate discarded:\n";
-                     std::cout << "  job_id: " << e.job_id << '\n';
-                     std::cout << "  nonce: " << e.nonce << '\n';
-                     std::cout
-                        << "  candidate_generation: " << e.candidate_generation
-                        << '\n';
-                     std::cout
-                        << "  current_generation: " << e.current_generation
-                        << '\n';
-                  } else if constexpr (std::is_same_v<T, ScanFinishedEvent>) {
-                     print_scan_finished(e);
-                     print_running_totals(snapshot_counters(counters));
-                  } else if constexpr (std::is_same_v<T, ShutdownEvent>) {
-                     std::cout << e.reason << '\n';
-                  } else if constexpr (std::is_same_v<T, ErrorEvent>) {
-                     std::cerr << "error[" << e.source << "]: " << e.message
-                               << '\n';
-                  } else if constexpr (std::is_same_v<T, ThreadExitedEvent>) {
-                     std::cout << "thread exited: " << e.thread_name << '\n';
-                     if (e.thread_name == "control") {
-                        control_exited = true;
-                     } else if (e.thread_name == "worker") {
-                        worker_exited = true;
-                     }
-                  }
-               },
-               event);
+            const auto outcome =
+               render_event(event, counters, status_line_active);
+            control_exited = control_exited || outcome.control_exited;
+            worker_exited = worker_exited || outcome.worker_exited;
          }
 
          const auto now = std::chrono::steady_clock::now();
