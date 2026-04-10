@@ -570,6 +570,20 @@ ScanChunk make_scan_chunk(std::uint32_t nonce_begin) {
    };
 }
 
+cpu_miner::ScanControl make_scan_control(
+   std::stop_token stop_token,
+   std::atomic<std::uint64_t>& work_generation,
+   std::uint64_t expected_generation,
+   std::atomic<std::uint64_t>& current_scan_hashes_done) {
+   return cpu_miner::ScanControl{
+      .stop_token = stop_token,
+      .work_generation = &work_generation,
+      .expected_generation = expected_generation,
+      .check_interval = 16'384U,
+      .progress_hashes_done = &current_scan_hashes_done,
+   };
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -690,13 +704,10 @@ int main(int argc, char* argv[]) {
                      .nonce_end = nonce_end,
                   });
 
-                  cpu_miner::ScanControl control{
-                     .stop_token = stop_token,
-                     .work_generation = &work_generation,
-                     .expected_generation = published.generation,
-                     .check_interval = 16'384U,
-                     .progress_hashes_done = &counters.current_scan_hashes_done,
-                  };
+                  const auto control =
+                     make_scan_control(stop_token, work_generation,
+                                       published.generation,
+                                       counters.current_scan_hashes_done);
 
                   coordinator.on_share_found(
                      [&](const cpu_miner::ShareSubmission& submission,
